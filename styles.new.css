@@ -1,0 +1,104 @@
+.results-table-container {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+/* Make headers sticky and fully opaque */
+.results-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.results-table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: 500;
+  border-bottom: 2px solid var(--border-color);
+  white-space: nowrap;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Draggable partition */
+.editor-results-partition {
+  width: 100%;
+  height: 4px;
+  background: var(--border-color);
+  cursor: row-resize;
+  position: relative;
+  margin: 1px 0;
+}
+
+.editor-results-partition:hover {
+  background: var(--accent-primary);
+}
+
+/* Enhanced cell popover */
+.cell-popover {
+  position: fixed;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  max-width: 400px;
+  max-height: 300px;
+  overflow: auto;
+  z-index: 1000;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.cell-popover.hidden {
+  display: none;
+}
+
+.cell-popover .popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+}
+
+.cell-popover .copy-button {
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.cell-popover .copy-button:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.cell-popover .copy-button svg {
+  width: 12px;
+  height: 12px;
+}

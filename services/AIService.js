@@ -1,0 +1,218 @@
+const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
+const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages');
+
+class AIService {
+  constructor() {
+    this.model = new ChatGoogleGenerativeAI({
+      modelName: 'gemini-2.0-flash-exp',
+      apiKey: process.env.GOOGLE_API_KEY,
+      temperature: 0.3,
+      maxOutputTokens: 2048,
+    });
+  }
+
+  formatSchemaForPrompt(schema) {
+    let schemaText = 'Database Schema:\n\n';
+    
+    for (const [schemaName, tables] of Object.entries(schema)) {
+      schemaText += `Schema: ${schemaName}\n`;
+      
+      for (const [tableName, tableInfo] of Object.entries(tables)) {
+        schemaText += `\nTable: ${tableName}\n`;
+        schemaText += 'Columns:\n';
+        
+        tableInfo.columns.forEach(col => {
+          const constraints = col.constraints.length > 0 
+            ? ` (${col.constraints.join(', ')})` 
+            : '';
+          const nullable = col.nullable ? 'NULL' : 'NOT NULL';
+          schemaText += `  - ${col.name}: ${col.type} ${nullable}${constraints}\n`;
+        });
+      }
+      schemaText += '\n';
+    }
+    
+    return schemaText;
+  }
+
+  async generateSQL(prompt, schema) {
+    try {
+      const schemaText = this.formatSchemaForPrompt(schema);
+
+      const systemPrompt = `You are an expert PostgreSQL assistant. Your task is to generate SQL queries based on user requests.
+
+${schemaText}
+
+Rules:
+1. Generate ONLY valid PostgreSQL SQL queries
+2. Use the exact table and column names from the schema
+3. Include appropriate JOINs when querying multiple tables
+4. Add WHERE clauses for filtering when mentioned
+5. Use proper formatting and indentation
+6. Return ONLY the SQL query, no explanations or markdown
+7. For SELECT queries, always specify column names (avoid SELECT *)
+8. Use table aliases for better readability
+9. Add appropriate ORDER BY clauses when relevant
+10. Consider performance implications
+
+If the request is unclear or cannot be fulfilled with the available schema, return an error message starting with "ERROR:".`;
+
+      const messages = [
+        new SystemMessage(systemPrompt),
+        new HumanMessage(prompt)
+      ];
+
+      const response = await this.model.invoke(messages);
+      let sqlQuery = response.content.trim();
+
+      // Remove markdown code blocks if present
+      sqlQuery = sqlQuery.replace(/```sql\n?/g, '').replace(/```\n?/g, '').trim();
+
+      // Check if it's an error
+      if (sqlQuery.startsWith('ERROR:')) {
+        return {
+          success: false,
+          error: sqlQuery.replace('ERROR:', '').trim(),
+          query: null
+        };
+      }
+
+      return {
+        success: true,
+        query: sqlQuery,
+        explanation: 'SQL query generated successfully'
+      };
+    } catch (error) {
+      console.error('Error generating SQL:', error);
+      return {
+        success: false,
+        error: error.message,
+        query: null
+      };
+    }
+  }
+
+  async explainQuery(query, schema) {
+    try {
+      const schemaText = this.formatSchemaForPrompt(schema);
+
+      const systemPrompt = `You are an expert PostgreSQL assistant. Your task is to explain SQL queries in simple terms.
+
+${schemaText}
+
+Provide:
+1. What the query does in simple language
+2. Which tables are involved
+3. What conditions/filters are applied
+4. What the expected result will be
+5. Any potential performance considerations
+
+Be concise but thorough.`;
+
+      const messages = [
+        new SystemMessage(systemPrompt),
+        new HumanMessage(`Explain this SQL query:\n\n${query}`)
+      ];
+
+      const response = await this.model.invoke(messages);
+
+      return {
+        success: true,
+        explanation: response.content.trim()
+      };
+    } catch (error) {
+      console.error('Error explaining query:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async chat(message, context, history = []) {
+    try {
+      const schemaText = context.schema ? this.formatSchemaForPrompt(context.schema) : '';
+
+      const systemPrompt = `You are NeuroDB AI Assistant, an expert PostgreSQL database assistant built into a database management tool.
+
+${schemaText ? schemaText : 'No database schema available yet.'}
+
+You can help with:
+1. Writing and optimizing SQL queries
+2. Explaining query results and database concepts
+3. Suggesting best practices for database design
+4. Debugging query errors
+5. Performance optimization tips
+6. General PostgreSQL questions
+
+Current context:
+- Connected database: ${context.connectionName || 'None'}
+- Current table: ${context.currentTable || 'None'}
+
+Be helpful, concise, and practical. When suggesting SQL, use the schema provided.`;
+
+      const messages = [
+        new SystemMessage(systemPrompt),
+        ...history.map(msg => 
+          msg.role === 'user' 
+            ? new HumanMessage(msg.content)
+            : new AIMessage(msg.content)
+        ),
+        new HumanMessage(message)
+      ];
+
+      const response = await this.model.invoke(messages);
+
+      return {
+        success: true,
+        response: response.content.trim(),
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('Error in chat:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async optimizeQuery(query, schema) {
+    try {
+      const schemaText = this.formatSchemaForPrompt(schema);
+
+      const systemPrompt = `You are an expert PostgreSQL query optimizer.
+
+${schemaText}
+
+Analyze the provided query and suggest optimizations. Consider:
+1. Index usage
+2. JOIN efficiency
+3. Subquery optimization
+4. Use of appropriate operators
+5. Query structure improvements
+
+Provide the optimized query and explanation of changes.`;
+
+      const messages = [
+        new SystemMessage(systemPrompt),
+        new HumanMessage(`Optimize this query:\n\n${query}`)
+      ];
+
+      const response = await this.model.invoke(messages);
+
+      return {
+        success: true,
+        optimization: response.content.trim()
+      };
+    } catch (error) {
+      console.error('Error optimizing query:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+}
+
+module.exports = AIService;

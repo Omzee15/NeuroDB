@@ -1,0 +1,57 @@
+{
+  "name": "neurodb",
+  "version": "1.0.0",
+  "description": "AI-powered PostgreSQL database management tool",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "electron:dev": "electron . --inspect=5858",
+    "dev": "concurrently \"npm run electron:dev\"",
+    "build": "electron-builder"
+  },
+  "keywords": [
+    "postgresql",
+    "database",
+    "ai",
+    "electron",
+    "sql"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@langchain/core": "^0.3.0",
+    "@langchain/google-genai": "^0.1.0",
+    "dotenv": "^16.3.1",
+    "langchain": "^0.3.0",
+    "node-sql-parser": "^5.0.0",
+    "pg": "^8.11.3",
+    "xlsx": "^0.18.5"
+  },
+  "build": {
+    "appId": "com.neurodb.app",
+    "productName": "NeuroDB",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!**/*.ts",
+      "!*.map"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

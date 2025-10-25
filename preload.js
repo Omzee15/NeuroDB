@@ -1,0 +1,44 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
+contextBridge.exposeInMainWorld('api', {
+  // Server Management
+  saveServer: (server) => ipcRenderer.invoke('save-server', server),
+  deleteServer: (serverId) => ipcRenderer.invoke('delete-server', serverId),
+  listDatabasesOnServer: (serverId) => ipcRenderer.invoke('list-databases-on-server', serverId),
+  
+  // Database Management
+  saveDatabase: (database) => ipcRenderer.invoke('save-database', database),
+  deleteDatabase: (databaseId) => ipcRenderer.invoke('delete-database', databaseId),
+  
+  // Connection Management (Legacy + new)
+  saveConnection: (connection) => ipcRenderer.invoke('save-connection', connection),
+  getConnections: () => ipcRenderer.invoke('get-connections'),
+  deleteConnection: (id) => ipcRenderer.invoke('delete-connection', id),
+  testConnection: (connection) => ipcRenderer.invoke('test-connection', connection),
+
+  // Database Operations
+  connectDB: (connectionId) => ipcRenderer.invoke('connect-db', connectionId),
+  disconnectDB: (connectionId) => ipcRenderer.invoke('disconnect-db', connectionId),
+  executeQuery: (connectionId, query) => ipcRenderer.invoke('execute-query', { connectionId, query }),
+  getDatabaseSchema: (connectionId) => ipcRenderer.invoke('get-database-schema', connectionId),
+  getTables: (connectionId) => ipcRenderer.invoke('get-tables', connectionId),
+  getTableSchema: (connectionId, tableName) => ipcRenderer.invoke('get-table-schema', { connectionId, tableName }),
+  generateDatabaseBackup: (databaseId) => ipcRenderer.invoke('generate-database-backup', databaseId),
+  exportToExcel: (data, filename) => ipcRenderer.invoke('export-to-excel', { data, filename }),
+
+    // AI Operations
+  generateSQL: (prompt, schema, connectionId) => ipcRenderer.invoke('generate-sql', { prompt, schema, connectionId }),
+  explainQuery: (query, schema) => ipcRenderer.invoke('explain-query', { query, schema }),
+  chatWithAI: (message, context, history) => ipcRenderer.invoke('chat-with-ai', { message, context, history }),
+
+  // Config Management
+  getConfig: (key) => ipcRenderer.invoke('get-config', key),
+  setConfig: (key, value) => ipcRenderer.invoke('set-config', { key, value }),
+  getTheme: () => ipcRenderer.invoke('get-theme'),
+  setTheme: (theme) => ipcRenderer.invoke('set-theme', theme),
+
+  // File Operations
+  saveFile: (options) => ipcRenderer.invoke('save-file', options)
+});
