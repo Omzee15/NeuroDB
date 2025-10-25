@@ -8,29 +8,24 @@ Cursor for pgadmin
 
 - 🔌 **Multi-Connection Management**: Save and manage multiple PostgreSQL database connections
 - 🤖 **AI-Powered SQL Generation**: Generate SQL queries from natural language prompts
-- 📊 **Query Tool**: Execute SQL queries with beautiful result visualization
-- 💻 **PSQL Terminal**: Interactive terminal for PostgreSQL commands
-- 🔍 **Database Browser**: Visual tree view of schemas, tables, and columns
+- � **Snippets Management**: Save and reuse frequently used SQL queries with custom shortcuts
+- � **Variables System**: Create and manage variables for dynamic query parameters
+- 🔍 **Database Browser**: Visual explorer for your database structure with schema diagrams
 - 📝 **Query Explanation**: Get AI-powered explanations of complex queries
-- 💬 **AI Chat Assistant**: Ask questions about your database and SQL
+- 💬 **AI Chat Assistant**: Ask questions about your database and get instant SQL solutions
 
 ## AI Capabilities
 
-The AI assistant has access to:
-- Complete database schema (tables, columns, data types)
-- Primary keys and foreign keys
-- Constraints and indexes
-- Your conversation history
+NeuroDB's AI maintains persistent context of your database schema, eliminating the need to repeatedly explain table structures or relationships. Unlike traditional AI tools like ChatGPT, it:
 
-It can help with:
-- Generating SELECT, INSERT, UPDATE, DELETE queries
-- Creating JOINs across multiple tables
-- Writing complex WHERE clauses
-- Aggregations and GROUP BY queries
-- Window functions
-- Query optimization suggestions
-- Debugging SQL errors
-- Database design advice
+- Automatically understands your complete database structure
+- Remembers table relationships and foreign key connections
+- Generates complex multi-table JOIN queries instantly
+- Creates sophisticated WHERE clauses considering actual table constraints
+- Provides contextually accurate query suggestions based on your schema
+- Maintains conversation context for follow-up query refinements
+
+Simply describe what you need in plain English, and the AI will generate the correct SQL, already optimized for your specific database structure - no need to explain your schema every time.
 
 ## Technology Stack
 
