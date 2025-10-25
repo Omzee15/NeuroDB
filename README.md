@@ -76,25 +76,3 @@ NeuroDB/
 ```
 
 
-
-## Future Enhancements
-
-- [ ] Query history and favorites
-- [ ] Export results to CSV/JSON
-- [ ] Visual query builder
-- [ ] Database migration tools
-- [ ] Performance monitoring
-- [ ] Multi-query execution
-- [ ] Syntax highlighting in editor
-- [ ] Auto-completion
-- [ ] Connection encryption
-- [ ] Cloud database support
-- [ ] Collaborative features
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues and pull requests.
