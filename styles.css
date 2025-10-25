@@ -618,18 +618,6 @@ body {
   overflow: hidden;
 }
 
-.editor-results-partition {
-  width: 100%;
-  height: 4px;
-  background: var(--border-color);
-  cursor: row-resize;
-  position: relative;
-}
-
-.editor-results-partition:hover {
-  background: var(--accent-primary);
-}
-
 .query-tabs {
   display: flex;
   background: var(--bg-secondary);
@@ -1066,32 +1054,11 @@ body {
 }
 
 .cell-popover .popover-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   font-weight: bold;
   margin-bottom: 8px;
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 4px;
-}
-
-.cell-popover .copy-button {
-  padding: 4px 8px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.cell-popover .copy-button:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent-primary);
 }
 
 .cell-popover .popover-content {
@@ -1922,4 +1889,77 @@ body {
 .btn-secondary:hover {
   background: var(--bg-secondary);
   border-color: var(--text-secondary);
+}
+
+/* Database List Styles */
+.database-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.database-item.create-new {
+  background: var(--bg-tertiary);
+  padding: 12px;
+}
+
+.database-item-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 0;
+}
+
+.new-db-input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 4px;
+  width: 250px;
+  font-size: 13px;
+  margin-right: 8px;
+}
+
+.new-db-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.database-list-separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: 12px 0;
+}
+
+.create-database-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#createDatabaseButton {
+  width: 100%;
+  text-align: center;
+}
+
+#createDatabaseForm {
+  width: 100%;
+}
+
+.database-name {
+  font-size: 13px;
+  color: var(--text-primary);
 }

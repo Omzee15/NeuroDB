@@ -145,7 +145,7 @@ function renderConnections() {
         <span class="server-name">${server.name}</span>
       </div>
       <div class="server-actions">
-        <button class="btn-icon" onclick="openAddDatabaseModal('${server.id}')" title="Add Database">
+        <button class="btn-icon" onclick="listDatabasesOnServer('${server.id}')" title="Add Database">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
           </svg>
@@ -1640,6 +1640,152 @@ function replacePlaceholders(query) {
   });
   
   return processedQuery;
+}
+
+// Database List and Creation Functions
+async function listDatabasesOnServer(serverId) {
+  try {
+    const result = await window.api.listDatabasesOnServer(serverId);
+    
+    if (result.success) {
+      // Show databases in a modal or dropdown
+      const databaseList = document.createElement('div');
+      databaseList.className = 'database-list';
+      
+      // Add "Create New Database" button at the top
+      const createNewItem = document.createElement('div');
+      createNewItem.className = 'database-item create-new';
+      createNewItem.innerHTML = `
+        <div class="database-item-content">
+          <div id="createDatabaseButton">
+            <button class="btn-primary" onclick="showCreateDatabaseForm('${serverId}')">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 6px;">
+                <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
+              </svg>
+              Create New Database
+            </button>
+          </div>
+          <div id="createDatabaseForm" class="hidden">
+            <div class="create-database-form">
+              <input type="text" id="newDatabaseName" placeholder="Enter database name" class="new-db-input">
+              <div class="form-actions">
+                <button class="btn-secondary btn-sm" onclick="hideCreateDatabaseForm()">Cancel</button>
+                <button class="btn-primary btn-sm" onclick="createNewDatabase('${serverId}')">Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      databaseList.appendChild(createNewItem);
+      
+      // Add separator
+      const separator = document.createElement('div');
+      separator.className = 'database-list-separator';
+      databaseList.appendChild(separator);
+      
+      // Get current server's databases that are already added
+      const server = connections.find(s => s.id === serverId);
+      const addedDatabases = new Set(server?.databases?.map(db => db.name) || []);
+
+      // List available databases (not yet added)
+      const databases = result.databases || [];
+      databases.forEach(db => {
+        if (!db || !db.name) return; // Skip invalid entries
+        if (addedDatabases.has(db.name)) return; // Skip already added databases
+        
+        const item = document.createElement('div');
+        item.className = 'database-item';
+        item.innerHTML = `
+          <div class="database-name">${db.name}</div>
+          <button class="btn-secondary btn-sm" onclick="addDatabaseToConnections('${serverId}', '${db.name}')">
+            Add
+          </button>
+        `;
+        databaseList.appendChild(item);
+      });
+      
+      showDatabaseListModal(databaseList);
+    } else {
+      showNotification(result.error || 'Failed to list databases', 'error');
+    }
+  } catch (error) {
+    console.error('Error listing databases:', error);
+    showNotification('Failed to list databases', 'error');
+  }
+}
+
+async function createNewDatabase(serverId) {
+  const input = document.getElementById('newDatabaseName');
+  const databaseName = input.value.trim();
+  
+  if (!databaseName) {
+    showNotification('Please enter a database name', 'error');
+    return;
+  }
+  
+  try {
+    const result = await window.api.createDatabase(serverId, databaseName);
+    
+    if (result.success) {
+      showNotification('Database created successfully', 'success');
+      // Add the new database to connections
+      await addDatabaseToConnections(serverId, databaseName);
+      // Refresh the database list
+      await listDatabasesOnServer(serverId);
+    } else {
+      showNotification(result.error || 'Failed to create database', 'error');
+    }
+  } catch (error) {
+    console.error('Error creating database:', error);
+    showNotification('Failed to create database', 'error');
+  }
+}
+
+function showCreateDatabaseForm(serverId) {
+  const createButton = document.getElementById('createDatabaseButton');
+  const createForm = document.getElementById('createDatabaseForm');
+  if (createButton && createForm) {
+    createButton.classList.add('hidden');
+    createForm.classList.remove('hidden');
+    document.getElementById('newDatabaseName')?.focus();
+  }
+}
+
+function hideCreateDatabaseForm() {
+  const createButton = document.getElementById('createDatabaseButton');
+  const createForm = document.getElementById('createDatabaseForm');
+  if (createButton && createForm) {
+    createButton.classList.remove('hidden');
+    createForm.classList.add('hidden');
+  }
+}
+
+function showDatabaseListModal(content) {
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Available Databases</h2>
+        <button class="btn-icon" onclick="hideCreateDatabaseForm(); this.closest('.modal').remove()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        ${content.outerHTML}
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Focus the new database input if it exists
+  const newDbInput = modal.querySelector('#newDatabaseName');
+  if (newDbInput) {
+    newDbInput.focus();
+  }
 }
 
 // DBML Rendering

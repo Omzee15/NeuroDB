@@ -11,6 +11,44 @@ class DatabaseService {
     this.loadConnections();
   }
 
+  async createDatabase(serverId, databaseName) {
+    try {
+      const server = this.servers.get(serverId);
+      if (!server) {
+        throw new Error('Server not found');
+      }
+
+      // Create a temporary connection to postgres database
+      const tempPool = new Pool({
+        host: server.host,
+        port: server.port,
+        user: server.user,
+        password: server.password,
+        database: 'postgres' // Connect to default postgres database
+      });
+
+      // Create the new database
+      await tempPool.query(`CREATE DATABASE "${databaseName}"`);
+      await tempPool.end();
+
+      // Add the new database to our configuration
+      const dbId = `${serverId}_${databaseName}`;
+      const newDb = {
+        id: dbId,
+        serverId: serverId,
+        name: databaseName
+      };
+
+      this.databases.set(dbId, newDb);
+      this.saveConnections();
+
+      return newDb;
+    } catch (error) {
+      console.error('Error creating database:', error);
+      throw error;
+    }
+  }
+
   loadConnections() {
     try {
       if (fs.existsSync(this.configPath)) {
@@ -236,7 +274,7 @@ class DatabaseService {
 
       return { 
         success: true, 
-        databases: result.rows.map(row => row.name)
+        databases: result.rows.map(row => ({ name: row.name }))
       };
     } catch (error) {
       return { success: false, error: error.message };

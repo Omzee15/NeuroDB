@@ -96,8 +96,26 @@ ipcMain.handle('test-connection', async (event, connection) => {
 });
 
 // Database Operations
+// Database Operations
 ipcMain.handle('connect-db', async (event, connectionId) => {
-  return dbService.connect(connectionId);
+  try {
+    const result = await dbService.connectToDatabase(connectionId);
+    return { success: true, ...result };
+  } catch (error) {
+    console.error('Error connecting to database:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Create Database
+ipcMain.handle('create-database', async (event, { serverId, databaseName }) => {
+  try {
+    const result = await dbService.createDatabase(serverId, databaseName);
+    return { success: true, database: result };
+  } catch (error) {
+    console.error('Error creating database:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 ipcMain.handle('disconnect-db', async (event, connectionId) => {
