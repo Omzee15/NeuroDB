@@ -99,7 +99,7 @@ ipcMain.handle('test-connection', async (event, connection) => {
 // Database Operations
 ipcMain.handle('connect-db', async (event, connectionId) => {
   try {
-    const result = await dbService.connectToDatabase(connectionId);
+    const result = await dbService.connect(connectionId);
     return { success: true, ...result };
   } catch (error) {
     console.error('Error connecting to database:', error);
