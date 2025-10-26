@@ -59,6 +59,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       welcomeScreen.classList.add('hidden');
       databaseView.classList.remove('hidden');
     }
+    
+    // Initialize container heights after a short delay to ensure DOM is fully rendered
+    setTimeout(() => {
+      updateContainerHeights();
+    }, 100);
   } catch (error) {
     console.error('Error initializing app:', error);
     showNotification('Error initializing application', 'error');
@@ -415,6 +420,105 @@ function setupEventListeners() {
       hideCellPopover();
     }
   });
+  
+  // Setup resize functionality
+  setupResultsResize();
+}
+
+// Setup Results Resize Functionality
+function setupResultsResize() {
+  const resizeHandle = document.getElementById('resizeHandle');
+  const editorContainer = document.querySelector('.editor-container');
+  const resultsContainer = document.querySelector('.results-container');
+  const querySection = document.querySelector('.query-section');
+  
+  if (!resizeHandle || !editorContainer || !resultsContainer || !querySection) {
+    console.warn('Resize elements not found');
+    return;
+  }
+  
+  let isResizing = false;
+  let startY = 0;
+  let startEditorHeight = 0;
+  let startResultsHeight = 0;
+  
+  // Load saved heights from localStorage
+  const savedEditorHeight = localStorage.getItem('neurodb_editor_height');
+  const savedResultsHeight = localStorage.getItem('neurodb_results_height');
+  
+  if (savedEditorHeight && savedResultsHeight) {
+    editorContainer.style.height = savedEditorHeight + 'px';
+    resultsContainer.style.height = savedResultsHeight + 'px';
+  } else {
+    // Set default heights
+    updateContainerHeights();
+  }
+  
+  // Mouse down on resize handle
+  resizeHandle.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    startY = e.clientY;
+    startEditorHeight = editorContainer.offsetHeight;
+    startResultsHeight = resultsContainer.offsetHeight;
+    
+    // Prevent text selection during resize
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ns-resize';
+    
+    e.preventDefault();
+  });
+  
+  // Mouse move for resizing
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    
+    const deltaY = e.clientY - startY;
+    const newEditorHeight = Math.max(150, Math.min(startEditorHeight + deltaY, window.innerHeight - 400));
+    const newResultsHeight = Math.max(150, Math.min(startResultsHeight - deltaY, window.innerHeight - 400));
+    
+    // Ensure total height doesn't exceed available space
+    const totalAvailableHeight = querySection.offsetHeight - 100; // Account for other elements
+    if (newEditorHeight + newResultsHeight <= totalAvailableHeight) {
+      editorContainer.style.height = newEditorHeight + 'px';
+      resultsContainer.style.height = newResultsHeight + 'px';
+    }
+  });
+  
+  // Mouse up to stop resizing
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      
+      // Save heights to localStorage
+      localStorage.setItem('neurodb_editor_height', editorContainer.offsetHeight);
+      localStorage.setItem('neurodb_results_height', resultsContainer.offsetHeight);
+    }
+  });
+  
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    if (!isResizing) {
+      updateContainerHeights();
+    }
+  });
+}
+
+// Update container heights based on available space
+function updateContainerHeights() {
+  const editorContainer = document.querySelector('.editor-container');
+  const resultsContainer = document.querySelector('.results-container');
+  const querySection = document.querySelector('.query-section');
+  
+  if (!editorContainer || !resultsContainer || !querySection) return;
+  
+  const availableHeight = querySection.offsetHeight - 100; // Account for other UI elements
+  const editorHeight = Math.max(150, Math.floor(availableHeight * 0.4)); // 40% for editor
+  const resultsHeight = Math.max(150, availableHeight - editorHeight); // Remaining for results
+  
+  editorContainer.style.height = editorHeight + 'px';
+  resultsContainer.style.height = resultsHeight + 'px';
 }
 
 // Connection Management
