@@ -789,6 +789,16 @@ body {
   color: white;
 }
 
+.autocomplete-item-type.table {
+  background: #3b82f6;
+  color: white;
+}
+
+.autocomplete-item-type.view {
+  background: #8b5cf6;
+  color: white;
+}
+
 .autocomplete-item-name {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 13px;
@@ -1095,6 +1105,98 @@ body {
 
 .cell-popover .popover-content {
   color: var(--text-primary);
+}
+
+/* Table Selection Styles */
+.results-table th.selected-column,
+.results-table td.selected-column {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-left: 2px solid var(--accent-primary);
+  border-right: 2px solid var(--accent-primary);
+}
+
+.results-table tr.selected-row {
+  background: rgba(59, 130, 246, 0.15) !important;
+}
+
+.results-table tr.selected-row td {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-top: 2px solid var(--accent-primary);
+  border-bottom: 2px solid var(--accent-primary);
+}
+
+.results-table tr.selected-row td:first-child {
+  border-left: 2px solid var(--accent-primary);
+}
+
+.results-table tr.selected-row td:last-child {
+  border-right: 2px solid var(--accent-primary);
+}
+
+.results-table td.selected-cell {
+  background: rgba(59, 130, 246, 0.25) !important;
+  border: 2px solid var(--accent-primary) !important;
+  outline: none;
+}
+
+/* Selection priority: cell > row > column */
+.results-table td.selected-cell {
+  z-index: 3;
+  position: relative;
+}
+
+.results-table tr.selected-row td {
+  z-index: 2;
+  position: relative;
+}
+
+.results-table td.selected-column {
+  z-index: 1;
+  position: relative;
+}
+
+/* Row number highlighting when row is selected */
+.results-table tr.selected-row td:first-child {
+  background: var(--accent-primary) !important;
+  color: white !important;
+  font-weight: bold;
+}
+
+/* Column header highlighting when column is selected */
+.results-table th.selected-column {
+  background: var(--accent-primary) !important;
+  color: white !important;
+  font-weight: bold;
+}
+
+/* Cursor styles for interactive elements */
+.results-table th:not(:first-child) {
+  cursor: pointer;
+}
+
+.results-table td:first-child {
+  cursor: pointer;
+}
+
+.results-table td:not(:first-child) {
+  cursor: cell;
+}
+
+/* Multi-selection visual feedback */
+.results-table .selection-count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: var(--accent-primary);
+  color: white;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
 }
 
 /* PSQL Terminal */

@@ -15,6 +15,7 @@ let dbmlTables = [];
 let dbmlRelationships = [];
 let currentTheme = 'vscode-dark'; // Will be loaded from config
 let autocompleteSelectedIndex = -1;
+let currentTablesAndViews = []; // Store current database tables and views
 
 // DOM Elements
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -232,6 +233,124 @@ function toggleServer(serverId) {
     icon.style.transform = 'rotate(0deg)';
   } else {
     icon.style.transform = 'rotate(90deg)';
+  }
+}
+
+// Table Selection Management
+let selectedCells = new Set();
+let selectedRows = new Set();
+let selectedColumns = new Set();
+let lastSelectedCell = null;
+let isShiftSelecting = false;
+
+function clearAllSelections() {
+  // Clear visual selections
+  document.querySelectorAll('.results-table td.selected-cell').forEach(cell => {
+    cell.classList.remove('selected-cell');
+  });
+  document.querySelectorAll('.results-table tr.selected-row').forEach(row => {
+    row.classList.remove('selected-row');
+  });
+  document.querySelectorAll('.results-table th.selected-column, .results-table td.selected-column').forEach(element => {
+    element.classList.remove('selected-column');
+  });
+  
+  // Clear sets
+  selectedCells.clear();
+  selectedRows.clear();
+  selectedColumns.clear();
+  lastSelectedCell = null;
+}
+
+function getCellKey(rowIndex, colIndex) {
+  return `${rowIndex}-${colIndex}`;
+}
+
+function selectCell(td, rowIndex, colIndex, addToSelection = false) {
+  if (!addToSelection && !isShiftSelecting) {
+    clearAllSelections();
+  }
+  
+  const cellKey = getCellKey(rowIndex, colIndex);
+  
+  if (selectedCells.has(cellKey)) {
+    // Deselect if already selected
+    selectedCells.delete(cellKey);
+    td.classList.remove('selected-cell');
+  } else {
+    // Select cell
+    selectedCells.add(cellKey);
+    td.classList.add('selected-cell');
+    lastSelectedCell = { rowIndex, colIndex };
+  }
+}
+
+function selectRow(rowIndex, addToSelection = false) {
+  if (!addToSelection) {
+    clearAllSelections();
+  }
+  
+  const table = document.querySelector('.results-table');
+  const row = table.querySelector(`tbody tr:nth-child(${rowIndex + 1})`);
+  
+  if (selectedRows.has(rowIndex)) {
+    // Deselect row
+    selectedRows.delete(rowIndex);
+    row.classList.remove('selected-row');
+  } else {
+    // Select row
+    selectedRows.add(rowIndex);
+    row.classList.add('selected-row');
+  }
+}
+
+function selectColumn(colIndex, addToSelection = false) {
+  if (!addToSelection) {
+    clearAllSelections();
+  }
+  
+  const table = document.querySelector('.results-table');
+  
+  if (selectedColumns.has(colIndex)) {
+    // Deselect column
+    selectedColumns.delete(colIndex);
+    
+    // Remove header selection
+    const header = table.querySelector(`thead th:nth-child(${colIndex + 2})`); // +2 because of row number column
+    if (header) header.classList.remove('selected-column');
+    
+    // Remove cell selections
+    const cells = table.querySelectorAll(`tbody td:nth-child(${colIndex + 2})`);
+    cells.forEach(cell => cell.classList.remove('selected-column'));
+  } else {
+    // Select column
+    selectedColumns.add(colIndex);
+    
+    // Add header selection
+    const header = table.querySelector(`thead th:nth-child(${colIndex + 2})`);
+    if (header) header.classList.add('selected-column');
+    
+    // Add cell selections
+    const cells = table.querySelectorAll(`tbody td:nth-child(${colIndex + 2})`);
+    cells.forEach(cell => cell.classList.add('selected-column'));
+  }
+}
+
+function selectCellRange(startRow, startCol, endRow, endCol) {
+  const minRow = Math.min(startRow, endRow);
+  const maxRow = Math.max(startRow, endRow);
+  const minCol = Math.min(startCol, endCol);
+  const maxCol = Math.max(startCol, endCol);
+  
+  for (let row = minRow; row <= maxRow; row++) {
+    for (let col = minCol; col <= maxCol; col++) {
+      const td = document.querySelector(`.results-table tbody tr:nth-child(${row + 1}) td:nth-child(${col + 2})`);
+      if (td) {
+        const cellKey = getCellKey(row, col);
+        selectedCells.add(cellKey);
+        td.classList.add('selected-cell');
+      }
+    }
   }
 }
 
@@ -773,6 +892,7 @@ async function connectToDatabase(connectionId) {
       showNotification('Connected successfully', 'success');
       
       await loadDatabaseSchema();
+      await loadTablesAndViews();
     } else {
       showNotification('Connection failed: ' + result.error, 'error');
     }
@@ -795,6 +915,18 @@ async function loadDatabaseSchema() {
     }
   } catch (error) {
     showNotification('Error loading schema: ' + error.message, 'error');
+  }
+}
+
+async function loadTablesAndViews() {
+  if (!currentConnectionId) return;
+  
+  try {
+    currentTablesAndViews = await window.api.getTablesAndViews(currentConnectionId);
+    console.log('Loaded tables and views:', currentTablesAndViews);
+  } catch (error) {
+    console.error('Error loading tables and views:', error);
+    currentTablesAndViews = [];
   }
 }
 
@@ -984,6 +1116,9 @@ function renderResultsTable(rows, fields) {
   const table = document.createElement('table');
   table.className = 'results-table';
   
+  // Clear any existing selections
+  clearAllSelections();
+  
   // Header
   const thead = document.createElement('thead');
   const headerRow = document.createElement('tr');
@@ -993,9 +1128,18 @@ function renderResultsTable(rows, fields) {
   lineNumHeader.textContent = '#';
   headerRow.appendChild(lineNumHeader);
   
-  Object.keys(rows[0]).forEach(key => {
+  Object.keys(rows[0]).forEach((key, colIndex) => {
     const th = document.createElement('th');
     th.textContent = key;
+    th.dataset.columnIndex = colIndex;
+    
+    // Add column selection handler
+    th.addEventListener('click', (e) => {
+      const isCtrlCmd = e.ctrlKey || e.metaKey;
+      selectColumn(colIndex, isCtrlCmd);
+      e.preventDefault();
+    });
+    
     headerRow.appendChild(th);
   });
   
@@ -1011,6 +1155,14 @@ function renderResultsTable(rows, fields) {
     // Add line number cell
     const lineNumCell = document.createElement('td');
     lineNumCell.textContent = rowIndex + 1;
+    
+    // Add row selection handler to line number cell
+    lineNumCell.addEventListener('click', (e) => {
+      const isCtrlCmd = e.ctrlKey || e.metaKey;
+      selectRow(rowIndex, isCtrlCmd);
+      e.preventDefault();
+    });
+    
     tr.appendChild(lineNumCell);
     
     Object.entries(row).forEach(([columnName, value], colIndex) => {
@@ -1042,6 +1194,7 @@ function renderResultsTable(rows, fields) {
       
       // Store data for editing and popover
       td.dataset.rowIndex = rowIndex;
+      td.dataset.columnIndex = colIndex;
       td.dataset.columnName = columnName;
       td.dataset.fullValue = fullValue;
       td.dataset.originalValue = fullValue;
@@ -1051,10 +1204,23 @@ function renderResultsTable(rows, fields) {
         showCellPopover(e, columnName, fullValue, rowIndex, td);
       });
       
+      // Add selection event listeners
       td.addEventListener('click', (e) => {
-        if (e.detail === 1) { // Single click
-          startCellEdit(td, rowIndex, columnName, fullValue);
+        const isCtrlCmd = e.ctrlKey || e.metaKey;
+        const isShift = e.shiftKey;
+        
+        if (isShift && lastSelectedCell) {
+          // Range selection
+          isShiftSelecting = true;
+          clearAllSelections();
+          selectCellRange(lastSelectedCell.rowIndex, lastSelectedCell.colIndex, rowIndex, colIndex);
+          isShiftSelecting = false;
+        } else {
+          // Single cell or multi-selection
+          selectCell(td, rowIndex, colIndex, isCtrlCmd);
         }
+        
+        e.preventDefault();
       });
       
       tr.appendChild(td);
@@ -2139,23 +2305,34 @@ function updateLineNumbers() {
   lineNumbers.innerHTML = lineNumbersArray.join('\n');
 }
 
-// Autocomplete for Shortcuts
+// Autocomplete for Shortcuts and SQL Tables/Views
 function handleAutocomplete() {
   const cursorPos = queryEditor.selectionStart;
   const textBeforeCursor = queryEditor.value.substring(0, cursorPos);
   
   // Check if we're typing a shortcut ({{)
-  const match = textBeforeCursor.match(/\{\{([^}]*)$/);
+  const shortcutMatch = textBeforeCursor.match(/\{\{([^}]*)$/);
   
-  if (match) {
-    const searchTerm = match[1].toLowerCase();
-    showAutocomplete(searchTerm, cursorPos);
-  } else {
-    hideAutocomplete();
+  if (shortcutMatch) {
+    const searchTerm = shortcutMatch[1].toLowerCase();
+    showShortcutAutocomplete(searchTerm, cursorPos);
+    return;
   }
+  
+  // Check if we're after SQL keywords that expect table/view names
+  const sqlKeywords = /\b(FROM|JOIN|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|UPDATE|INTO|TABLE)\s+(\w*)$/i;
+  const sqlMatch = textBeforeCursor.match(sqlKeywords);
+  
+  if (sqlMatch && currentTablesAndViews.length > 0) {
+    const searchTerm = sqlMatch[2].toLowerCase();
+    showTableAutocomplete(searchTerm, cursorPos);
+    return;
+  }
+  
+  hideAutocomplete();
 }
 
-function showAutocomplete(searchTerm, cursorPos) {
+function showShortcutAutocomplete(searchTerm, cursorPos) {
   const popover = document.getElementById('autocompletePopover');
   const list = document.getElementById('autocompleteList');
   
@@ -2219,6 +2396,65 @@ function showAutocomplete(searchTerm, cursorPos) {
   popover.classList.remove('hidden');
 }
 
+function showTableAutocomplete(searchTerm, cursorPos) {
+  const popover = document.getElementById('autocompletePopover');
+  const list = document.getElementById('autocompleteList');
+  
+  // Filter tables and views based on search term
+  const matchingItems = currentTablesAndViews.filter(item => 
+    searchTerm === '' || 
+    item.name.toLowerCase().includes(searchTerm) ||
+    item.fullName.toLowerCase().includes(searchTerm)
+  );
+  
+  if (matchingItems.length === 0) {
+    hideAutocomplete();
+    return;
+  }
+  
+  // Build autocomplete list
+  list.innerHTML = '';
+  matchingItems.forEach((item, index) => {
+    const div = document.createElement('div');
+    div.className = 'autocomplete-item';
+    if (index === 0) div.classList.add('selected');
+    div.dataset.index = index;
+    div.dataset.tableName = item.fullName;
+    
+    const typeLabel = document.createElement('span');
+    typeLabel.className = `autocomplete-item-type ${item.type}`;
+    typeLabel.textContent = item.type === 'table' ? 'TBL' : 'VIEW';
+    
+    const name = document.createElement('span');
+    name.className = 'autocomplete-item-name';
+    name.textContent = item.fullName;
+    
+    div.appendChild(typeLabel);
+    div.appendChild(name);
+    
+    // Add schema info if not public
+    if (item.schema !== 'public') {
+      const schema = document.createElement('span');
+      schema.className = 'autocomplete-item-description';
+      schema.textContent = `Schema: ${item.schema}`;
+      div.appendChild(schema);
+    }
+    
+    div.addEventListener('click', () => {
+      autocompleteSelectedIndex = index;
+      selectAutocompleteItem();
+    });
+    
+    list.appendChild(div);
+  });
+  
+  autocompleteSelectedIndex = 0;
+  
+  // Position popover
+  positionAutocomplete(cursorPos);
+  popover.classList.remove('hidden');
+}
+
 function positionAutocomplete(cursorPos) {
   const popover = document.getElementById('autocompletePopover');
   
@@ -2255,14 +2491,14 @@ function selectAutocompleteItem() {
   
   if (!selected) return;
   
-  const shortcut = selected.dataset.shortcut;
   const cursorPos = queryEditor.selectionStart;
   const textBeforeCursor = queryEditor.value.substring(0, cursorPos);
   const textAfterCursor = queryEditor.value.substring(cursorPos);
   
-  // Find the {{ before cursor
-  const match = textBeforeCursor.match(/\{\{([^}]*)$/);
-  if (match) {
+  // Check if this is a shortcut selection ({{)
+  const shortcutMatch = textBeforeCursor.match(/\{\{([^}]*)$/);
+  if (shortcutMatch) {
+    const shortcut = selected.dataset.shortcut;
     const matchStart = textBeforeCursor.lastIndexOf('{{');
     const newText = textBeforeCursor.substring(0, matchStart) + 
                     `{{${shortcut}}}` + 
@@ -2273,6 +2509,27 @@ function selectAutocompleteItem() {
       matchStart + `{{${shortcut}}}`.length;
     
     updateLineNumbers();
+  } 
+  // Check if this is a table/view selection
+  else {
+    const tableName = selected.dataset.tableName;
+    
+    // Find the SQL keyword and current word
+    const sqlKeywords = /\b(FROM|JOIN|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|UPDATE|INTO|TABLE)\s+(\w*)$/i;
+    const sqlMatch = textBeforeCursor.match(sqlKeywords);
+    
+    if (sqlMatch && tableName) {
+      const keywordEnd = textBeforeCursor.lastIndexOf(sqlMatch[2]) || textBeforeCursor.length;
+      const newText = textBeforeCursor.substring(0, keywordEnd) + 
+                      tableName + 
+                      textAfterCursor;
+      
+      queryEditor.value = newText;
+      queryEditor.selectionStart = queryEditor.selectionEnd = 
+        keywordEnd + tableName.length;
+      
+      updateLineNumbers();
+    }
   }
   
   hideAutocomplete();

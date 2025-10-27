@@ -130,6 +130,10 @@ ipcMain.handle('get-database-schema', async (event, connectionId) => {
   return dbService.getDatabaseSchema(connectionId);
 });
 
+ipcMain.handle('get-tables-and-views', async (event, connectionId) => {
+  return dbService.getTablesAndViews(connectionId);
+});
+
 ipcMain.handle('get-tables', async (event, connectionId) => {
   return dbService.getTables(connectionId);
 });

@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   disconnectDB: (connectionId) => ipcRenderer.invoke('disconnect-db', connectionId),
   executeQuery: (connectionId, query) => ipcRenderer.invoke('execute-query', { connectionId, query }),
   getDatabaseSchema: (connectionId) => ipcRenderer.invoke('get-database-schema', connectionId),
+  getTablesAndViews: (connectionId) => ipcRenderer.invoke('get-tables-and-views', connectionId),
   getTables: (connectionId) => ipcRenderer.invoke('get-tables', connectionId),
   createDatabase: (serverId, databaseName) => ipcRenderer.invoke('create-database', { serverId, databaseName }),
   getTableSchema: (connectionId, tableName) => ipcRenderer.invoke('get-table-schema', { connectionId, tableName }),

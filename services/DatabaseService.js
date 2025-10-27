@@ -630,6 +630,39 @@ class DatabaseService {
       };
     }
   }
+
+  async getTablesAndViews(connectionId) {
+    try {
+      const pool = this.pools.get(connectionId);
+      if (!pool) {
+        throw new Error('Not connected to database');
+      }
+
+      // Get all tables and views
+      const query = `
+        SELECT 
+          table_schema,
+          table_name,
+          table_type
+        FROM information_schema.tables
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+          AND table_type IN ('BASE TABLE', 'VIEW')
+        ORDER BY table_schema, table_name;
+      `;
+
+      const result = await pool.query(query);
+      
+      return result.rows.map(row => ({
+        schema: row.table_schema,
+        name: row.table_name,
+        type: row.table_type === 'BASE TABLE' ? 'table' : 'view',
+        fullName: row.table_schema === 'public' ? row.table_name : `${row.table_schema}.${row.table_name}`
+      }));
+    } catch (error) {
+      console.error('Error getting tables and views:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = DatabaseService;
