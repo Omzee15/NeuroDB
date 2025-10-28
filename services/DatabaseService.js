@@ -7,6 +7,7 @@ class DatabaseService {
     this.servers = new Map(); // Server configurations
     this.databases = new Map(); // Database connections within servers
     this.pools = new Map();
+    this.activeQueries = new Map(); // Track active queries for cancellation
     this.configPath = path.join(__dirname, '../connections.json');
     this.loadConnections();
   }
@@ -281,26 +282,74 @@ class DatabaseService {
     }
   }
 
-  async executeQuery(connectionId, query) {
+  async executeQuery(connectionId, query, queryId = null) {
     try {
       const pool = this.pools.get(connectionId);
       if (!pool) {
         throw new Error('Not connected to database');
       }
 
-      const result = await pool.query(query);
-      return {
-        success: true,
-        rows: result.rows,
-        fields: result.fields,
-        rowCount: result.rowCount
-      };
+      // Create a client from the pool for this specific query
+      const client = await pool.connect();
+      
+      // If queryId is provided, track this query for potential cancellation
+      if (queryId) {
+        this.activeQueries.set(queryId, { client, connectionId });
+      }
+
+      try {
+        const startTime = Date.now();
+        const result = await client.query(query);
+        const executionTime = Date.now() - startTime;
+        
+        return {
+          success: true,
+          rows: result.rows,
+          fields: result.fields,
+          rowCount: result.rowCount,
+          executionTime: executionTime
+        };
+      } finally {
+        // Always release the client back to the pool
+        client.release();
+        
+        // Remove from active queries if it was being tracked
+        if (queryId) {
+          this.activeQueries.delete(queryId);
+        }
+      }
     } catch (error) {
+      // Remove from active queries if it was being tracked
+      if (queryId) {
+        this.activeQueries.delete(queryId);
+      }
+      
       return {
         success: false,
         error: error.message,
         position: error.position
       };
+    }
+  }
+
+  async cancelQuery(queryId) {
+    try {
+      const queryInfo = this.activeQueries.get(queryId);
+      if (!queryInfo) {
+        return { success: false, error: 'Query not found or already completed' };
+      }
+
+      const { client } = queryInfo;
+      
+      // Cancel the query using PostgreSQL's cancel request
+      await client.cancel();
+      
+      // Remove from active queries
+      this.activeQueries.delete(queryId);
+      
+      return { success: true, message: 'Query cancelled successfully' };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
   }
 

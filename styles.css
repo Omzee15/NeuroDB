@@ -687,6 +687,78 @@ body {
   border-color: var(--accent-primary);
 }
 
+/* Where Clause Builder */
+.where-clause-builder {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px 15px;
+}
+
+.where-builder-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.where-builder-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.where-builder-title span {
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+.where-builder-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.where-dropdown {
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+  min-width: 120px;
+}
+
+.where-dropdown:focus {
+  border-color: var(--accent-primary);
+}
+
+.where-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+  min-width: 150px;
+}
+
+.where-input:focus {
+  border-color: var(--accent-primary);
+}
+
+#executeWhereBtn {
+  padding: 6px 12px;
+  font-size: 13px;
+  height: auto;
+}
+
 /* Query Editor */
 .editor-container {
   display: flex;
@@ -1395,6 +1467,17 @@ body {
 
 .btn-secondary:hover {
   background: var(--bg-hover);
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: white;
+  border: 1px solid #dc3545;
+}
+
+.btn-danger:hover {
+  background: #c82333;
+  border-color: #bd2130;
 }
 
 .btn-icon {

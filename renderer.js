@@ -16,6 +16,9 @@ let dbmlRelationships = [];
 let currentTheme = 'vscode-dark'; // Will be loaded from config
 let autocompleteSelectedIndex = -1;
 let currentTablesAndViews = []; // Store current database tables and views
+let selectedTableInfo = null; // Store currently selected table information
+let currentQueryId = null; // Track current query for cancellation
+let isQueryExecuting = false; // Track query execution state
 
 // DOM Elements
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -33,6 +36,19 @@ const aiChatInput = document.getElementById('aiChatInput');
 const dbTree = document.getElementById('dbTree');
 const psqlOutput = document.getElementById('psqlOutput');
 const psqlInput = document.getElementById('psqlInput');
+
+// Where Clause Builder Elements
+const whereClauseBuilder = document.getElementById('whereClauseBuilder');
+const selectedTableName = document.getElementById('selectedTableName');
+const columnSelect = document.getElementById('columnSelect');
+const operatorSelect = document.getElementById('operatorSelect');
+const valueInput = document.getElementById('valueInput');
+const executeWhereBtn = document.getElementById('executeWhereBtn');
+const closeWhereBuilder = document.getElementById('closeWhereBuilder');
+
+// Query execution control elements
+const executeQueryBtn = document.getElementById('executeQueryBtn');
+const stopQueryBtn = document.getElementById('stopQueryBtn');
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
@@ -386,6 +402,7 @@ function setupEventListeners() {
   
   // Query Editor
   document.getElementById('executeQueryBtn').addEventListener('click', executeQuery);
+  document.getElementById('stopQueryBtn').addEventListener('click', stopQuery);
   document.getElementById('generateSQLBtn').addEventListener('click', generateSQL);
   document.getElementById('explainQueryBtn').addEventListener('click', explainQuery);
   document.getElementById('queryHistoryBtn').addEventListener('click', openQueryHistoryModal);
@@ -548,6 +565,35 @@ function setupEventListeners() {
     const popover = document.getElementById('cellPopover');
     if (!popover.classList.contains('hidden') && !popover.contains(e.target)) {
       hideCellPopover();
+    }
+  });
+  
+  // Where Clause Builder
+  executeWhereBtn.addEventListener('click', generateWhereQuery);
+  closeWhereBuilder.addEventListener('click', hideWhereClauseBuilder);
+  
+  // Handle Enter key in value input
+  valueInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      generateWhereQuery();
+    }
+  });
+  
+  // Auto-hide certain operators that don't need values
+  operatorSelect.addEventListener('change', (e) => {
+    const operator = e.target.value;
+    if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
+      valueInput.style.display = 'none';
+    } else {
+      valueInput.style.display = 'block';
+      if (operator === 'IN' || operator === 'NOT IN') {
+        valueInput.placeholder = 'Enter comma-separated values...';
+      } else if (operator === 'LIKE' || operator === 'ILIKE') {
+        valueInput.placeholder = 'Enter pattern (use % for wildcard)...';
+      } else {
+        valueInput.placeholder = 'Enter value...';
+      }
     }
   });
   
@@ -1021,15 +1067,162 @@ function renderDatabaseTree(schema) {
 function selectTable(schemaName, tableName, tableInfo) {
   const fullTableName = `${schemaName}.${tableName}`;
   
-  // Generate query with all column names
+  // Store selected table information
+  selectedTableInfo = {
+    schema: schemaName,
+    name: tableName,
+    fullName: fullTableName,
+    info: tableInfo
+  };
+  
+  // Generate query with all column names and properly formatted table name
   const columnNames = tableInfo.columns.map(c => c.name).join(',\n  ');
-  queryEditor.value = `SELECT\n  ${columnNames}\nFROM ${fullTableName}\nLIMIT 100;`;
+  
+  // Handle table name formatting for PostgreSQL
+  let formattedTableName = fullTableName;
+  const nameParts = formattedTableName.split('.');
+  if (nameParts.length > 2) {
+    // Take the last two parts (schema.table)
+    formattedTableName = `${nameParts[nameParts.length - 2]}.${nameParts[nameParts.length - 1]}`;
+  } else if (nameParts.length === 1) {
+    // If no schema specified, use just the table name
+    formattedTableName = nameParts[0];
+  }
+  
+  // Quote table name parts if they contain special characters or are reserved words
+  const tableNameParts = formattedTableName.split('.');
+  if (tableNameParts.length === 2) {
+    const [schema, table] = tableNameParts;
+    const quotedSchema = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema) ? schema : `"${schema}"`;
+    const quotedTable = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table) ? table : `"${table}"`;
+    formattedTableName = `${quotedSchema}.${quotedTable}`;
+  } else {
+    formattedTableName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(formattedTableName) ? formattedTableName : `"${formattedTableName}"`;
+  }
+  
+  queryEditor.value = `SELECT\n  ${columnNames}\nFROM ${formattedTableName}\nLIMIT 100;`;
   
   // Update line numbers after setting the value
   updateLineNumbers();
   
+  // Show and populate the where clause builder
+  showWhereClauseBuilder(fullTableName, tableInfo.columns);
+  
   document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'));
   event.target.classList.add('selected');
+}
+
+// Where Clause Builder Functions
+function showWhereClauseBuilder(tableName, columns) {
+  // Update table name in header
+  selectedTableName.textContent = tableName;
+  
+  // Clear and populate column dropdown
+  columnSelect.innerHTML = '<option value="">Select Column</option>';
+  columns.forEach(column => {
+    const option = document.createElement('option');
+    option.value = column.name;
+    option.textContent = `${column.name} (${column.type})`;
+    columnSelect.appendChild(option);
+  });
+  
+  // Reset form
+  operatorSelect.value = '=';
+  valueInput.value = '';
+  
+  // Show the where clause builder
+  whereClauseBuilder.classList.remove('hidden');
+}
+
+function hideWhereClauseBuilder() {
+  whereClauseBuilder.classList.add('hidden');
+  selectedTableInfo = null;
+}
+
+function generateWhereQuery() {
+  if (!selectedTableInfo) {
+    showNotification('No table selected', 'error');
+    return;
+  }
+  
+  const column = columnSelect.value;
+  const operator = operatorSelect.value;
+  const value = valueInput.value.trim();
+  
+  if (!column) {
+    showNotification('Please select a column', 'error');
+    return;
+  }
+  
+  // Build the WHERE clause
+  let whereClause = '';
+  let formattedValue = value;
+  
+  // Handle different operators
+  if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
+    whereClause = `${column} ${operator}`;
+  } else if (operator === 'IN' || operator === 'NOT IN') {
+    if (!value) {
+      showNotification('Please enter values for IN/NOT IN (comma-separated)', 'error');
+      return;
+    }
+    // Parse comma-separated values and format them
+    const values = value.split(',').map(v => `'${v.trim()}'`).join(', ');
+    whereClause = `${column} ${operator} (${values})`;
+  } else {
+    if (!value) {
+      showNotification('Please enter a value', 'error');
+      return;
+    }
+    
+    // Quote the value if it's not a number
+    if (isNaN(value) && operator !== 'LIKE' && operator !== 'ILIKE') {
+      formattedValue = `'${value}'`;
+    } else if (operator === 'LIKE' || operator === 'ILIKE') {
+      formattedValue = `'${value}'`;
+    }
+    
+    whereClause = `${column} ${operator} ${formattedValue}`;
+  }
+  
+  // Generate the full query with properly formatted table name
+  const columnNames = selectedTableInfo.info.columns.map(c => c.name).join(',\n  ');
+  
+  // Ensure proper table name formatting (schema.table_name)
+  let tableName = selectedTableInfo.fullName;
+  
+  // If fullName contains more than one dot, it might be incorrectly formatted
+  // Extract just the schema and table name
+  const nameParts = tableName.split('.');
+  if (nameParts.length > 2) {
+    // Take the last two parts (schema.table)
+    tableName = `${nameParts[nameParts.length - 2]}.${nameParts[nameParts.length - 1]}`;
+  } else if (nameParts.length === 1) {
+    // If no schema specified, use just the table name
+    tableName = nameParts[0];
+  }
+  
+  // For table names that are PostgreSQL reserved words or contain special characters, quote them
+  const tableNameParts = tableName.split('.');
+  if (tableNameParts.length === 2) {
+    const [schema, table] = tableNameParts;
+    // Quote individual parts if they contain special characters or are reserved words
+    const quotedSchema = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema) ? schema : `"${schema}"`;
+    const quotedTable = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table) ? table : `"${table}"`;
+    tableName = `${quotedSchema}.${quotedTable}`;
+  } else {
+    // Single table name, quote if necessary
+    tableName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName) ? tableName : `"${tableName}"`;
+  }
+  
+  const query = `SELECT\n  ${columnNames}\nFROM ${tableName}\nWHERE ${whereClause}\nLIMIT 100;`;
+  
+  // Set the query in the editor
+  queryEditor.value = query;
+  updateLineNumbers();
+  
+  // Execute the query
+  executeQuery();
 }
 
 // Query Execution
@@ -1045,9 +1238,22 @@ async function executeQuery() {
     showNotification('Please enter a query', 'error');
     return;
   }
+
+  // Prevent multiple simultaneous queries
+  if (isQueryExecuting) {
+    showNotification('A query is already executing', 'warning');
+    return;
+  }
   
   // Replace placeholders
   query = replacePlaceholders(query);
+  
+  // Set execution state
+  isQueryExecuting = true;
+  currentQueryId = Date.now().toString();
+  
+  // Update UI for execution state
+  updateQueryExecutionUI(true);
   
   resultsInfo.innerHTML = '<div class="loading"></div> Executing...';
   resultsTableContainer.innerHTML = '';
@@ -1057,7 +1263,7 @@ async function executeQuery() {
   
   try {
     const startTime = Date.now();
-    const result = await window.api.executeQuery(currentConnectionId, query);
+    const result = await window.api.executeQuery(currentConnectionId, query, currentQueryId);
     const totalTime = Date.now() - startTime;
     
     // Add to query history
@@ -1108,29 +1314,69 @@ async function executeQuery() {
       showNotification('Query failed', 'error');
     }
   } catch (error) {
-    // Add failed query to history
-    const historyItem = {
-      id: Date.now().toString(),
-      query: query,
-      timestamp: new Date().toISOString(),
-      executionTime: 0,
-      success: false,
-      rowCount: 0,
-      error: error.message,
-      connectionId: currentConnectionId
-    };
-    
-    queryHistory.unshift(historyItem);
-    
-    if (queryHistory.length > 100) {
-      queryHistory = queryHistory.slice(0, 100);
+    // Check if this was a cancellation
+    if (error.message && error.message.includes('cancel')) {
+      resultsInfo.textContent = 'Query cancelled';
+      resultsTableContainer.innerHTML = '<div class="no-results">Query execution was cancelled.</div>';
+      showNotification('Query cancelled', 'info');
+    } else {
+      // Add failed query to history
+      const historyItem = {
+        id: Date.now().toString(),
+        query: query,
+        timestamp: new Date().toISOString(),
+        executionTime: 0,
+        success: false,
+        rowCount: 0,
+        error: error.message,
+        connectionId: currentConnectionId
+      };
+      
+      queryHistory.unshift(historyItem);
+      
+      resultsInfo.textContent = 'Error';
+      resultsTableContainer.innerHTML = `<div class="no-results" style="color: var(--error);"><strong>Error:</strong> ${error.message}</div>`;
+      showNotification('Query failed', 'error');
     }
-    
-    resultsInfo.textContent = 'Error';
-    resultsTableContainer.innerHTML = `<div class="no-results" style="color: var(--error);">${error.message}</div>`;
-    // Disable export buttons on error
-    disableExportButtons();
-    showNotification('Error executing query', 'error');
+  } finally {
+    // Reset execution state
+    isQueryExecuting = false;
+    currentQueryId = null;
+    updateQueryExecutionUI(false);
+  }
+}
+
+// Update UI during query execution
+function updateQueryExecutionUI(isExecuting) {
+  if (isExecuting) {
+    executeQueryBtn.disabled = true;
+    executeQueryBtn.classList.add('hidden');
+    stopQueryBtn.classList.remove('hidden');
+    stopQueryBtn.disabled = false;
+  } else {
+    executeQueryBtn.disabled = false;
+    executeQueryBtn.classList.remove('hidden');
+    stopQueryBtn.classList.add('hidden');
+    stopQueryBtn.disabled = true;
+  }
+}
+
+// Cancel current query execution
+async function stopQuery() {
+  if (!currentQueryId || !isQueryExecuting) {
+    showNotification('No query is currently executing', 'warning');
+    return;
+  }
+  
+  try {
+    const result = await window.api.cancelQuery(currentQueryId);
+    if (result.success) {
+      showNotification('Query cancellation requested', 'info');
+    } else {
+      showNotification(`Failed to cancel query: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    showNotification(`Error cancelling query: ${error.message}`, 'error');
   }
 }
 

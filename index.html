@@ -167,6 +167,39 @@
                 <button class="btn-primary" id="generateSQLBtn">Generate</button>
               </div>
 
+              <!-- Where Clause Builder -->
+              <div class="where-clause-builder hidden" id="whereClauseBuilder">
+                <div class="where-builder-header">
+                  <span class="where-builder-title">Quick Filter: <span id="selectedTableName"></span></span>
+                  <button class="btn-icon" id="closeWhereBuilder" title="Close">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="where-builder-controls">
+                  <select id="columnSelect" class="where-dropdown">
+                    <option value="">Select Column</option>
+                  </select>
+                  <select id="operatorSelect" class="where-dropdown">
+                    <option value="=">=</option>
+                    <option value="!=">!=</option>
+                    <option value="<">&lt;</option>
+                    <option value="<=">&lt;=</option>
+                    <option value=">">&gt;</option>
+                    <option value=">=">&gt;=</option>
+                    <option value="LIKE">LIKE</option>
+                    <option value="ILIKE">ILIKE</option>
+                    <option value="IN">IN</option>
+                    <option value="NOT IN">NOT IN</option>
+                    <option value="IS NULL">IS NULL</option>
+                    <option value="IS NOT NULL">IS NOT NULL</option>
+                  </select>
+                  <input type="text" id="valueInput" class="where-input" placeholder="Enter value...">
+                  <button class="btn-primary" id="executeWhereBtn">Filter</button>
+                </div>
+              </div>
+
               <!-- Query Editor -->
               <div class="editor-container">
                 <div class="editor-wrapper">
@@ -193,6 +226,12 @@
                       <path d="M4 2l10 6-10 6V2z"/>
                     </svg>
                     Execute (Ctrl+Enter)
+                  </button>
+                  <button class="btn-danger hidden" id="stopQueryBtn">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                      <rect x="4" y="4" width="8" height="8"/>
+                    </svg>
+                    Stop
                   </button>
                   <button class="btn-secondary" id="explainQueryBtn">Explain Query</button>
                   <button class="btn-secondary" id="queryHistoryBtn" title="Query History">

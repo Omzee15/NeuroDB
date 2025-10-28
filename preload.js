@@ -22,7 +22,8 @@ contextBridge.exposeInMainWorld('api', {
   // Database Operations
   connectDB: (connectionId) => ipcRenderer.invoke('connect-db', connectionId),
   disconnectDB: (connectionId) => ipcRenderer.invoke('disconnect-db', connectionId),
-  executeQuery: (connectionId, query) => ipcRenderer.invoke('execute-query', { connectionId, query }),
+  executeQuery: (connectionId, query, queryId) => ipcRenderer.invoke('execute-query', { connectionId, query, queryId }),
+  cancelQuery: (queryId) => ipcRenderer.invoke('cancel-query', queryId),
 
   getDatabaseSchema: (connectionId) => ipcRenderer.invoke('get-database-schema', connectionId),
   getTablesAndViews: (connectionId) => ipcRenderer.invoke('get-tables-and-views', connectionId),

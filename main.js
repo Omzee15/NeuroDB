@@ -126,8 +126,12 @@ ipcMain.handle('disconnect-db', async (event, connectionId) => {
   return dbService.disconnect(connectionId);
 });
 
-ipcMain.handle('execute-query', async (event, { connectionId, query }) => {
-  return dbService.executeQuery(connectionId, query);
+ipcMain.handle('execute-query', async (event, { connectionId, query, queryId }) => {
+  return dbService.executeQuery(connectionId, query, queryId);
+});
+
+ipcMain.handle('cancel-query', async (event, queryId) => {
+  return dbService.cancelQuery(queryId);
 });
 
 ipcMain.handle('get-database-schema', async (event, connectionId) => {
