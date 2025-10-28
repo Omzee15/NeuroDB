@@ -78,11 +78,22 @@ async function loadConnections() {
     connections = [];
     
     // Load connections from backend
-    const loadedConnections = await window.api.getConnections();
+    const result = await window.api.getConnections();
     
-    if (loadedConnections && Array.isArray(loadedConnections)) {
-      connections = loadedConnections;
-      console.log('Loaded connections:', connections.length);
+    if (result.success) {
+      const { servers = [], databases = [] } = result;
+      // Convert to the format expected by the UI
+      connections = servers.map(server => ({
+        ...server,
+        type: 'server',
+        databases: databases.filter(db => db.serverId === server.id)
+      }));
+      console.log('Loaded connections:', {
+        servers: servers.length,
+        databases: databases.length
+      });
+    } else {
+      console.error('Failed to load connections:', result.error);
     }
     
     // Update UI
@@ -906,9 +917,11 @@ async function loadDatabaseSchema() {
   
   try {
     const result = await window.api.getDatabaseSchema(currentConnectionId);
+    console.log('Database schema result:', result);
     
     if (result.success) {
       currentSchema = result.schema;
+      console.log('Current schema:', currentSchema);
       renderDatabaseTree(result.schema);
     } else {
       showNotification('Failed to load schema: ' + result.error, 'error');
@@ -931,7 +944,16 @@ async function loadTablesAndViews() {
 }
 
 function renderDatabaseTree(schema) {
+  console.log('Rendering database tree with schema:', schema);
   dbTree.innerHTML = '';
+  
+  if (!schema || Object.keys(schema).length === 0) {
+    const emptyEl = document.createElement('div');
+    emptyEl.className = 'tree-empty';
+    emptyEl.textContent = 'No tables found';
+    dbTree.appendChild(emptyEl);
+    return;
+  }
   
   for (const [schemaName, tables] of Object.entries(schema)) {
     const schemaEl = document.createElement('div');
@@ -2008,6 +2030,28 @@ async function createNewDatabase(serverId) {
   } catch (error) {
     console.error('Error creating database:', error);
     showNotification('Failed to create database', 'error');
+  }
+}
+
+async function addDatabaseToConnections(serverId, databaseName) {
+  try {
+    const result = await window.api.addExistingDatabase(serverId, databaseName);
+    
+    if (result.success) {
+      showNotification(`Database "${databaseName}" added successfully`, 'success');
+      // Refresh the connections list
+      loadConnections();
+      // Close the modal
+      const modal = document.querySelector('.modal');
+      if (modal) {
+        modal.remove();
+      }
+    } else {
+      showNotification(result.error || 'Failed to add database', 'error');
+    }
+  } catch (error) {
+    console.error('Error adding database to connections:', error);
+    showNotification('Failed to add database', 'error');
   }
 }
 
@@ -3094,6 +3138,11 @@ window.deleteDatabase = deleteDatabase;
 window.toggleServer = toggleServer;
 window.openAddDatabaseModal = openAddDatabaseModal;
 window.addDatabaseToServer = addDatabaseToServer;
+window.listDatabasesOnServer = listDatabasesOnServer;
+window.addDatabaseToConnections = addDatabaseToConnections;
+window.showCreateDatabaseForm = showCreateDatabaseForm;
+window.hideCreateDatabaseForm = hideCreateDatabaseForm;
+window.createNewDatabase = createNewDatabase;
 window.closeQueryHistoryModal = closeQueryHistoryModal;
 window.clearQueryHistory = clearQueryHistory;
 

@@ -78,6 +78,10 @@ ipcMain.handle('delete-database', async (event, databaseId) => {
   return dbService.deleteDatabase(databaseId);
 });
 
+ipcMain.handle('add-existing-database', async (event, serverId, databaseName) => {
+  return dbService.addExistingDatabase(serverId, databaseName);
+});
+
 // Connection Management (Legacy support + new structure)
 ipcMain.handle('save-connection', async (event, connection) => {
   return dbService.saveConnection(connection);
@@ -133,6 +137,7 @@ ipcMain.handle('get-database-schema', async (event, connectionId) => {
 ipcMain.handle('get-tables-and-views', async (event, connectionId) => {
   return dbService.getTablesAndViews(connectionId);
 });
+
 
 ipcMain.handle('get-tables', async (event, connectionId) => {
   return dbService.getTables(connectionId);

@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   // Database Management
   saveDatabase: (database) => ipcRenderer.invoke('save-database', database),
   deleteDatabase: (databaseId) => ipcRenderer.invoke('delete-database', databaseId),
+  addExistingDatabase: (serverId, databaseName) => ipcRenderer.invoke('add-existing-database', serverId, databaseName),
   
   // Connection Management (Legacy + new)
   saveConnection: (connection) => ipcRenderer.invoke('save-connection', connection),
@@ -22,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   connectDB: (connectionId) => ipcRenderer.invoke('connect-db', connectionId),
   disconnectDB: (connectionId) => ipcRenderer.invoke('disconnect-db', connectionId),
   executeQuery: (connectionId, query) => ipcRenderer.invoke('execute-query', { connectionId, query }),
+
   getDatabaseSchema: (connectionId) => ipcRenderer.invoke('get-database-schema', connectionId),
   getTablesAndViews: (connectionId) => ipcRenderer.invoke('get-tables-and-views', connectionId),
   getTables: (connectionId) => ipcRenderer.invoke('get-tables', connectionId),
