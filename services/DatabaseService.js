@@ -304,6 +304,38 @@ class DatabaseService {
     }
   }
 
+  async getTablesAndViews(connectionId) {
+    try {
+      const schemaResult = await this.getDatabaseSchema(connectionId);
+      if (!schemaResult.success) {
+        return schemaResult;
+      }
+
+      const { schema } = schemaResult;
+      return {
+        success: true,
+        tables: Object.values(schema.tables).map(table => ({
+          name: table.name,
+          schema: table.schema,
+          fullName: `${table.schema}.${table.name}`,
+          columns: table.columns
+        })),
+        views: Object.values(schema.views).map(view => ({
+          name: view.name,
+          schema: view.schema,
+          fullName: `${view.schema}.${view.name}`,
+          definition: view.definition
+        }))
+      };
+    } catch (error) {
+      console.error('Error getting tables and views:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
   async getDatabaseSchema(connectionId) {
     try {
       console.log('Getting database schema for connectionId:', connectionId);

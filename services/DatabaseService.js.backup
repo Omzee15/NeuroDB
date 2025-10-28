@@ -1,0 +1,914 @@
+const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
+
+class DatabaseService {
+  constructor() {
+    this.servers = new Map(); // Server configurations
+    this.databases = new Map(); // Database connections within servers
+    this.pools = new Map();
+    this.configPath = path.join(__dirname, '../connections.json');
+    this.loadConnections();
+  }
+
+  async createDatabase(serverId, databaseName) {
+    try {
+      const server = this.servers.get(serverId);
+      if (!server) {
+        throw new Error('Server not found');
+      }
+
+      // Create a temporary connection to postgres database
+      const tempPool = new Pool({
+        host: server.host,
+        port: server.port,
+        user: server.user,
+        password: server.password,
+        database: 'postgres' // Connect to default postgres database
+      });
+
+      // Create the new database
+      await tempPool.query(`CREATE DATABASE "${databaseName}"`);
+      await tempPool.end();
+
+      // Add the new database to our configuration
+      const dbId = `${serverId}_${databaseName}`;
+      const newDb = {
+        id: dbId,
+        serverId: serverId,
+        name: databaseName
+      };
+
+      this.databases.set(dbId, newDb);
+      this.saveConnections();
+
+      return newDb;
+    } catch (error) {
+      console.error('Error creating database:', error);
+      throw error;
+    }
+  }
+
+  loadConnections() {
+    try {
+      if (fs.existsSync(this.configPath)) {
+        const data = fs.readFileSync(this.configPath, 'utf8');
+        const config = JSON.parse(data);
+        
+        // Load servers
+        if (config.servers) {
+          config.servers.forEach(server => {
+            this.servers.set(server.id, server);
+          });
+        }
+        
+        // Load databases
+        if (config.databases) {
+          config.databases.forEach(db => {
+            this.databases.set(db.id, db);
+          });
+        }
+        
+        // Migrate old connections to new format if needed
+        if (!config.servers && !config.databases && Array.isArray(config)) {
+          this.migrateOldConnections(config);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading connections:', error);
+    }
+  }
+
+  migrateOldConnections(oldConnections) {
+    // Convert old flat connection list to server/database structure
+    const serverMap = new Map();
+    
+    oldConnections.forEach(conn => {
+      const serverKey = `${conn.host}:${conn.port}:${conn.user}`;
+      
+      if (!serverMap.has(serverKey)) {
+        const serverId = `server-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const server = {
+          id: serverId,
+          name: conn.name || `${conn.host}:${conn.port}`,
+          host: conn.host,
+          port: conn.port,
+          user: conn.user,
+          password: conn.password
+        };
+        serverMap.set(serverKey, serverId);
+        this.servers.set(serverId, server);
+      }
+      
+      const serverId = serverMap.get(serverKey);
+      const dbId = conn.id || `db-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const database = {
+        id: dbId,
+        serverId: serverId,
+        name: conn.database,
+        database: conn.database
+      };
+      this.databases.set(dbId, database);
+    });
+    
+    this.saveConnectionsToFile();
+  }
+
+  saveConnectionsToFile() {
+    try {
+      const config = {
+        servers: Array.from(this.servers.values()),
+        databases: Array.from(this.databases.values())
+      };
+      fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+    } catch (error) {
+      console.error('Error saving connections:', error);
+      throw error;
+    }
+  }
+
+  saveServer(server) {
+    try {
+      const id = server.id || `server-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const srv = { ...server, id };
+      this.servers.set(id, srv);
+      this.saveConnectionsToFile();
+      return { success: true, id };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  saveDatabase(database) {
+    try {
+      const id = database.id || `db-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const db = { ...database, id };
+      this.databases.set(id, db);
+      this.saveConnectionsToFile();
+      return { success: true, id };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  saveConnection(connection) {
+    // Legacy method for backward compatibility
+    return this.saveServer(connection);
+  }
+
+  getConnections() {
+    // Return structured data with servers and their databases
+    const servers = Array.from(this.servers.values()).map(server => ({
+      ...server,
+      password: '********', // Don't send passwords to frontend
+      databases: Array.from(this.databases.values())
+        .filter(db => db.serverId === server.id)
+        .map(db => ({
+          ...db
+        }))
+    }));
+    
+    return servers;
+  }
+
+  getServer(serverId) {
+    return this.servers.get(serverId);
+  }
+
+  getDatabase(databaseId) {
+    return this.databases.get(databaseId);
+  }
+
+  deleteServer(serverId) {
+    try {
+      // Delete all databases in this server
+      const databaseIds = Array.from(this.databases.values())
+        .filter(db => db.serverId === serverId)
+        .map(db => db.id);
+      
+      databaseIds.forEach(dbId => {
+        if (this.pools.has(dbId)) {
+          this.pools.get(dbId).end();
+          this.pools.delete(dbId);
+        }
+        this.databases.delete(dbId);
+      });
+      
+      this.servers.delete(serverId);
+      this.saveConnectionsToFile();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  deleteDatabase(databaseId) {
+    try {
+      if (this.pools.has(databaseId)) {
+        this.pools.get(databaseId).end();
+        this.pools.delete(databaseId);
+      }
+      this.databases.delete(databaseId);
+      this.saveConnectionsToFile();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  deleteConnection(id) {
+    // Legacy method - try both server and database
+    const serverResult = this.deleteServer(id);
+    if (serverResult.success) return serverResult;
+    
+    return this.deleteDatabase(id);
+  }
+
+  async testConnection(connection) {
+    const pool = new Pool({
+      host: connection.host,
+      port: connection.port,
+      database: connection.database || 'postgres',
+      user: connection.user,
+      password: connection.password,
+      connectionTimeoutMillis: 5000,
+    });
+
+    try {
+      const client = await pool.connect();
+      await client.query('SELECT NOW()');
+      client.release();
+      await pool.end();
+      return { success: true, message: 'Connection successful!' };
+    } catch (error) {
+      await pool.end();
+      return { success: false, error: error.message };
+    }
+  }
+
+  async listDatabasesOnServer(serverId) {
+    try {
+      const server = this.servers.get(serverId);
+      if (!server) {
+        throw new Error('Server not found');
+      }
+
+      const pool = new Pool({
+        host: server.host,
+        port: server.port,
+        database: 'postgres', // Connect to postgres database to list all databases
+        user: server.user,
+        password: server.password,
+        connectionTimeoutMillis: 5000,
+      });
+
+      const result = await pool.query(`
+        SELECT datname as name 
+        FROM pg_database 
+        WHERE datistemplate = false 
+        AND datname NOT IN ('postgres')
+        ORDER BY datname;
+      `);
+
+      await pool.end();
+
+      return { 
+        success: true, 
+        databases: result.rows.map(row => ({ name: row.name }))
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async addExistingDatabase(serverId, databaseName) {
+    try {
+      const server = this.servers.get(serverId);
+      if (!server) {
+        throw new Error('Server not found');
+      }
+
+      // Check if database already exists in our connections
+      const existingDb = Array.from(this.databases.values()).find(
+        db => db.serverId === serverId && db.name === databaseName
+      );
+      
+      if (existingDb) {
+        return { success: false, error: 'Database already added to connections' };
+      }
+
+      // Test connection to the database to make sure it exists
+      const testPool = new Pool({
+        host: server.host,
+        port: server.port,
+        database: databaseName,
+        user: server.user,
+        password: server.password,
+        connectionTimeoutMillis: 5000,
+      });
+
+      // Test the connection
+      await testPool.query('SELECT 1');
+      await testPool.end();
+
+      // Add the database to our configuration
+      const dbId = `${serverId}_${databaseName}_${Date.now()}`;
+      const newDb = {
+        id: dbId,
+        serverId: serverId,
+        name: databaseName
+      };
+
+      this.databases.set(dbId, newDb);
+      this.saveConnectionsToFile();
+
+      return { success: true, database: newDb };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async connect(connectionId) {
+    try {
+      // connectionId can be either a database ID
+      const database = this.databases.get(connectionId);
+      if (!database) {
+        throw new Error('Database connection not found');
+      }
+
+      const server = this.servers.get(database.serverId);
+      if (!server) {
+        throw new Error('Server not found');
+      }
+
+      if (this.pools.has(connectionId)) {
+        return { success: true, message: 'Already connected' };
+      }
+
+      const pool = new Pool({
+        host: server.host,
+        port: server.port,
+        database: database.database,
+        user: server.user,
+        password: server.password,
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+      });
+
+      // Test the connection
+      const client = await pool.connect();
+      client.release();
+
+      this.pools.set(connectionId, pool);
+      return { success: true, message: 'Connected successfully' };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async disconnect(connectionId) {
+    try {
+      if (this.pools.has(connectionId)) {
+        await this.pools.get(connectionId).end();
+        this.pools.delete(connectionId);
+      }
+      return { success: true, message: 'Disconnected successfully' };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async executeQuery(connectionId, query) {
+    try {
+      const pool = this.pools.get(connectionId);
+      if (!pool) {
+        throw new Error('Not connected to database');
+      }
+
+      const startTime = Date.now();
+      const result = await pool.query(query);
+      const executionTime = Date.now() - startTime;
+
+      return {
+        success: true,
+        rows: result.rows,
+        rowCount: result.rowCount,
+        fields: result.fields?.map(f => ({
+          name: f.name,
+          dataType: f.dataTypeID
+        })),
+        executionTime,
+        command: result.command
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        detail: error.detail,
+        hint: error.hint,
+        position: error.position
+      };
+    }
+  }
+
+  async getDatabaseSchema(connectionId) {
+    try {
+      console.log('Getting database schema for connectionId:', connectionId);
+      const pool = this.pools.get(connectionId);
+      if (!pool) {
+        throw new Error('Not connected to database');
+      }
+
+      const schemaInfo = {
+        tables: {},
+        views: {},
+        schemas: []
+      };
+
+      // Get all schemas except system schemas
+      console.log('Fetching schemas...');
+      const schemasQuery = 'SELECT nspname as schema_name FROM pg_catalog.pg_namespace ' +
+        "WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+        "AND nspname NOT LIKE 'pg_%' " +
+        "AND nspname NOT LIKE '_timescaledb%' " +
+        "AND nspname NOT LIKE 'timescaledb_%' " +
+        'ORDER BY nspname';
+      
+      const schemasResult = await pool.query(schemasQuery);
+      schemaInfo.schemas = schemasResult.rows.map(row => row.schema_name);
+      console.log(`Found ${schemaInfo.schemas.length} user schemas`);
+
+      // Get tables and columns
+      console.log('Fetching tables and columns...');
+      const tablesQuery = 'SELECT ' +
+        'n.nspname as schema_name, ' +
+        'c.relname as table_name, ' +
+        'a.attname as column_name, ' +
+        'format_type(a.atttypid, a.atttypmod) as data_type, ' +
+        'NOT a.attnotnull as is_nullable, ' +
+        'pg_get_expr(d.adbin, d.adrelid) as column_default, ' +
+        'a.attnum as ordinal_position ' +
+        'FROM pg_catalog.pg_class c ' +
+        'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace ' +
+        'JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid ' +
+        'LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum ' +
+        "WHERE c.relkind = 'r' " +
+        'AND a.attnum > 0 ' +
+        'AND NOT a.attisdropped ' +
+        "AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+        "AND n.nspname NOT LIKE 'pg_%' " +
+        "AND n.nspname NOT LIKE '_timescaledb%' " +
+        "AND n.nspname NOT LIKE 'timescaledb_%' " +
+        'ORDER BY n.nspname, c.relname, a.attnum';
+      
+      const tablesResult = await pool.query(tablesQuery);
+
+      // Process tables and columns
+      for (const row of tablesResult.rows) {
+        const fullTableName = `${row.schema_name}.${row.table_name}`;
+        if (!schemaInfo.tables[fullTableName]) {
+          schemaInfo.tables[fullTableName] = {
+            schema: row.schema_name,
+            name: row.table_name,
+            columns: []
+          };
+        }
+        
+        schemaInfo.tables[fullTableName].columns.push({
+          name: row.column_name,
+          type: row.data_type,
+          nullable: row.is_nullable,
+          default: row.column_default,
+          position: row.ordinal_position
+        });
+      }
+      
+      // Get primary keys
+      console.log('Fetching primary keys...');
+      const primaryKeysQuery = 'SELECT ' +
+        'n.nspname as schema_name, ' +
+        'c.relname as table_name, ' +
+        'a.attname as column_name ' +
+        'FROM pg_catalog.pg_constraint con ' +
+        'JOIN pg_catalog.pg_class c ON con.conrelid = c.oid ' +
+        'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace ' +
+        'JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(con.conkey) ' +
+        "WHERE con.contype = 'p' " +
+        "AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+        "AND n.nspname NOT LIKE 'pg_%' " +
+        "AND n.nspname NOT LIKE '_timescaledb%' " +
+        "AND n.nspname NOT LIKE 'timescaledb_%'";
+      
+      const primaryKeysResult = await pool.query(primaryKeysQuery);
+      
+      // Add primary key information to columns
+      for (const row of primaryKeysResult.rows) {
+        const fullTableName = `${row.schema_name}.${row.table_name}`;
+        if (schemaInfo.tables[fullTableName]) {
+          const column = schemaInfo.tables[fullTableName].columns.find(col => col.name === row.column_name);
+          if (column) {
+            column.primary_key = true;
+          }
+        }
+      }
+
+      // Get foreign keys
+      console.log('Fetching foreign keys...');
+      const foreignKeysQuery = 'SELECT ' +
+        'n1.nspname as table_schema, ' +
+        'c1.relname as table_name, ' +
+        'a1.attname as column_name, ' +
+        'n2.nspname as foreign_table_schema, ' +
+        'c2.relname as foreign_table_name, ' +
+        'a2.attname as foreign_column_name ' +
+        'FROM pg_catalog.pg_constraint con ' +
+        'JOIN pg_catalog.pg_class c1 ON con.conrelid = c1.oid ' +
+        'JOIN pg_catalog.pg_namespace n1 ON n1.oid = c1.relnamespace ' +
+        'JOIN pg_catalog.pg_class c2 ON con.confrelid = c2.oid ' +
+        'JOIN pg_catalog.pg_namespace n2 ON n2.oid = c2.relnamespace ' +
+        'JOIN pg_catalog.pg_attribute a1 ON a1.attrelid = c1.oid AND a1.attnum = ANY(con.conkey) ' +
+        'JOIN pg_catalog.pg_attribute a2 ON a2.attrelid = c2.oid AND a2.attnum = ANY(con.confkey) ' +
+        "WHERE con.contype = 'f' " +
+        "AND n1.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+        "AND n1.nspname NOT LIKE 'pg_%' " +
+        "AND n1.nspname NOT LIKE '_timescaledb%' " +
+        "AND n1.nspname NOT LIKE 'timescaledb_%'";
+      
+      const foreignKeysResult = await pool.query(foreignKeysQuery);
+      
+      // Add foreign key information to columns
+      for (const row of foreignKeysResult.rows) {
+        const fullTableName = `${row.table_schema}.${row.table_name}`;
+        if (schemaInfo.tables[fullTableName]) {
+          const column = schemaInfo.tables[fullTableName].columns.find(col => col.name === row.column_name);
+          if (column) {
+            column.foreign_key = {
+              table: `${row.foreign_table_schema}.${row.foreign_table_name}`,
+              column: row.foreign_column_name
+            };
+          }
+        }
+      }
+
+      // Get views
+      console.log('Fetching views...');
+      const viewsQuery = 'SELECT ' +
+        'n.nspname as schema_name, ' +
+        'c.relname as view_name, ' +
+        'pg_get_viewdef(c.oid, true) as view_definition ' +
+        'FROM pg_catalog.pg_class c ' +
+        'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace ' +
+        "WHERE c.relkind = 'v' " +
+        "AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+        "AND n.nspname NOT LIKE 'pg_%' " +
+        "AND n.nspname NOT LIKE '_timescaledb%' " +
+        "AND n.nspname NOT LIKE 'timescaledb_%' " +
+        'ORDER BY n.nspname, c.relname';
+      
+      const viewsResult = await pool.query(viewsQuery);
+
+      // Process views
+      for (const row of viewsResult.rows) {
+        const fullViewName = `${row.schema_name}.${row.view_name}`;
+        schemaInfo.views[fullViewName] = {
+          schema: row.schema_name,
+          name: row.view_name,
+          definition: row.view_definition
+        };
+      }
+
+      const stats = {
+        tables: Object.keys(schemaInfo.tables).length,
+        views: Object.keys(schemaInfo.views).length,
+        schemas: schemaInfo.schemas.length
+      };
+
+      console.log('Schema retrieval complete:', stats);
+
+      return {
+        success: true,
+        schema: schemaInfo,
+        ...stats
+      };
+
+    } catch (error) {
+      console.error('Error retrieving database schema:', error);
+      if (error.message.toLowerCase().includes('lock timeout')) {
+        console.warn('Lock timeout while fetching schema, some tables may be locked');
+        return {
+          success: true,
+          schema: schemaInfo,
+          warning: 'Some tables are locked and could not be fetched'
+        };
+      }
+      if (error.message.toLowerCase().includes('statement timeout')) {
+        console.warn('Statement timeout while fetching schema, query took too long');
+        return {
+          success: true,
+          schema: schemaInfo,
+          warning: 'Schema fetch was incomplete due to timeout'
+        };
+      }
+      return {
+        success: false,
+        error: error.message,
+        schema: {
+          tables: {},
+          views: {},
+          schemas: []
+        }
+      };
+    }
+  }
+      return { success: true, schemaInfo };
+    } catch (error) {
+      console.error('Error retrieving database schema:', error);
+      if (error.message.toLowerCase().includes('lock timeout')) {
+        console.warn('Lock timeout while fetching schema, some tables may be locked');
+        return {
+          success: true,
+          schema: schemaInfo,
+          warning: 'Some tables are locked and could not be fetched'
+        };
+      }
+      if (error.message.toLowerCase().includes('statement timeout')) {
+        console.warn('Statement timeout while fetching schema, query took too long');
+        return {
+          success: true,
+          schema: schemaInfo,
+          warning: 'Schema fetch was incomplete due to timeout'
+        };
+      }
+      return {
+        success: false,
+        error: error.message,
+        schema: {
+          tables: {},
+          views: {},
+          schemas: []
+        }
+      };
+    }
+  }
+
+        for (const tableRow of tablesResult.rows) {
+          const tableName = tableRow.table_name;
+          const fullTableName = `${schemaName}.${tableName}`;
+
+          backup += `\n-- Table: ${fullTableName}\n`;
+
+          // Get table structure
+          const columnsResult = await pool.query(`
+            SELECT 
+              c.column_name,
+              c.data_type,
+              c.character_maximum_length,
+              c.is_nullable,
+              c.column_default
+            FROM information_schema.columns c
+            WHERE c.table_schema = $1 AND c.table_name = $2
+            ORDER BY c.ordinal_position;
+          `, [schemaName, tableName]);
+
+          // Create table statement
+          backup += `DROP TABLE IF EXISTS ${fullTableName} CASCADE;\n`;
+          backup += `CREATE TABLE ${fullTableName} (\n`;
+          
+          const columnDefs = columnsResult.rows.map((col, idx) => {
+            let def = `  ${col.column_name} ${col.data_type}`;
+            if (col.character_maximum_length) {
+              def += `(${col.character_maximum_length})`;
+            }
+            if (col.is_nullable === 'NO') {
+              def += ' NOT NULL';
+            }
+            if (col.column_default) {
+              def += ` DEFAULT ${col.column_default}`;
+            }
+            return def;
+          });
+          
+          backup += columnDefs.join(',\n');
+          backup += `\n);\n\n`;
+
+          // Get table data
+          const dataResult = await pool.query(`SELECT * FROM ${fullTableName}`);
+          
+          if (dataResult.rows.length > 0) {
+            backup += `-- Data for ${fullTableName}\n`;
+            
+            for (const row of dataResult.rows) {
+              const columns = Object.keys(row);
+              const values = Object.values(row).map(val => {
+                if (val === null) return 'NULL';
+                if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+                if (val instanceof Date) return `'${val.toISOString()}'`;
+                if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+                return val;
+              });
+              
+              backup += `INSERT INTO ${fullTableName} (${columns.join(', ')}) VALUES (${values.join(', ')});\n`;
+            }
+            
+            backup += `\n`;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        backup: backup
+      };
+    } catch (error) {
+      console.error('Error generating backup:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async getTablesAndViews(connectionId) {
+    try {
+      const pool = this.pools.get(connectionId);
+      if (!pool) {
+        throw new Error('Not connected to database');
+      }
+
+      console.log('Getting database schema for connectionId:', connectionId);
+      const pool_exists = this.pools.get(connectionId);
+      console.log('Pool found, querying tables');
+
+      // First get schemas
+      const schemasQuery = `
+        SELECT nspname as schema_name
+        FROM pg_catalog.pg_namespace
+        WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+          AND nspname NOT LIKE 'pg_%'
+          AND nspname NOT LIKE '_timescaledb%'
+          AND nspname NOT LIKE 'timescaledb_%'
+        ORDER BY nspname;
+      `;
+      
+      const schemas = await pool.query(schemasQuery);
+      const userSchemas = schemas.rows.map(row => row.schema_name);
+
+      // Check tables in public schema first
+      const publicTablesQuery = `
+        SELECT 
+          c.relname as table_name,
+          c.relkind as table_type,
+          CASE 
+            WHEN EXISTS (
+              SELECT 1 FROM pg_catalog.pg_policy p 
+              WHERE p.polrelid = c.oid
+            ) THEN 'RLS Enabled'
+            ELSE 'No RLS'
+          END as security,
+          pg_catalog.pg_get_userbyid(c.relowner) as owner,
+          array_agg(DISTINCT acl.privilege_type) as permissions
+        FROM pg_catalog.pg_class c
+        LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN LATERAL (
+          SELECT privilege_type
+          FROM information_schema.role_table_grants
+          WHERE table_schema = n.nspname
+            AND table_name = c.relname
+        ) as acl ON true
+        WHERE c.relkind IN ('r', 'v')
+          AND n.nspname = 'public'
+        GROUP BY c.relname, c.relkind, c.oid, c.relowner;
+      `;
+
+      const publicTables = await pool.query(publicTablesQuery);
+      console.log('Public schema tables:', publicTables.rows);
+
+      // Get permissions for all schemas
+      const permissionsQuery = `
+        WITH user_schemas AS (
+          SELECT oid, nspname 
+          FROM pg_namespace 
+          WHERE nspname NOT LIKE 'pg_%' 
+            AND nspname != 'information_schema'
+        )
+        SELECT 
+          c.oid,
+          n.nspname as schema_name,
+          c.relname as table_name,
+          c.relacl as acl,
+          pg_catalog.pg_get_userbyid(c.relowner) as owner,
+          has_table_privilege(current_user, c.oid, 'SELECT') as has_select,
+          has_table_privilege(current_user, c.oid, 'INSERT') as has_insert,
+          has_table_privilege(current_user, c.oid, 'UPDATE') as has_update,
+          has_table_privilege(current_user, c.oid, 'DELETE') as has_delete,
+          has_schema_privilege(current_user, n.oid, 'USAGE') as has_schema_usage,
+          current_user,
+          array_agg(DISTINCT privilege_type) as granted_privileges
+        FROM pg_class c
+        JOIN user_schemas n ON c.relnamespace = n.oid
+        LEFT JOIN information_schema.role_table_grants g 
+          ON g.table_schema = n.nspname 
+          AND g.table_name = c.relname
+        WHERE c.relkind IN ('r', 'v')
+        GROUP BY c.oid, n.oid, n.nspname, c.relname, c.relacl, c.relowner;
+      `;
+
+      const permissions = await pool.query(permissionsQuery);
+      console.log('Permissions:', permissions.rows);
+
+      // Now get all accessible tables with their schemas
+      console.log('Executing main schema query: ');
+      const query = `
+        WITH tables_info AS (
+          SELECT 
+            n.nspname as schema_name,
+            c.relname as table_name,
+            a.attname as column_name,
+            format_type(a.atttypid, a.atttypmod) as data_type,
+            a.attnotnull as is_not_null,
+            pg_get_expr(d.adbin, d.adrelid) as column_default,
+            a.attnum as ordinal_position,
+            CASE 
+              WHEN pk.contype = 'p' THEN true
+              ELSE false
+            END as is_primary_key,
+            CASE 
+              WHEN fk.contype = 'f' THEN true
+              ELSE false
+            END as is_foreign_key,
+            fk.confrelid::regclass as foreign_table,
+            att2.attname as foreign_column
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+          LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum
+          LEFT JOIN pg_catalog.pg_constraint pk ON 
+            pk.conrelid = c.oid AND 
+            pk.contype = 'p' AND 
+            a.attnum = ANY(pk.conkey)
+          LEFT JOIN pg_catalog.pg_constraint fk ON 
+            fk.conrelid = c.oid AND 
+            fk.contype = 'f' AND 
+            a.attnum = ANY(fk.conkey)
+          LEFT JOIN pg_catalog.pg_attribute att2 ON 
+            fk.confrelid = att2.attrelid AND 
+            att2.attnum = fk.confkey[1]
+          WHERE c.relkind = 'r'
+            AND NOT c.relname LIKE '\_\_%'
+            AND NOT n.nspname LIKE 'pg\_%'
+            AND NOT n.nspname IN ('information_schema', 'pg_catalog')
+            AND a.attnum > 0 
+            AND NOT a.attisdropped
+        )
+        SELECT 
+          tc.*,
+          CASE 
+            WHEN con.contype = 'p' THEN 'PRIMARY KEY'
+            WHEN con.contype = 'f' THEN 'FOREIGN KEY'
+            WHEN con.contype = 'u' THEN 'UNIQUE'
+          END as constraint_type,
+          con.conname as constraint_name
+        FROM tables_info tc
+        LEFT JOIN pg_catalog.pg_class c ON c.relname = tc.table_name
+        LEFT JOIN pg_catalog.pg_namespace n ON n.nspname = tc.schema_name AND c.relnamespace = n.oid
+        LEFT JOIN pg_catalog.pg_constraint con ON 
+          con.conrelid = c.oid AND 
+          con.conkey @> ARRAY[
+            (SELECT attnum FROM pg_catalog.pg_attribute a 
+             WHERE a.attrelid = c.oid AND a.attname = tc.column_name)
+          ]::smallint[]
+        ORDER BY tc.schema_name, tc.table_name, tc.ordinal_position;
+      `;
+
+      const result = await pool.query(query);
+
+      // Process and combine all the information
+      return result.rows.reduce((tables, row) => {
+        const schema = row.schema_name;
+        const name = row.table_name;
+        const fullName = schema === 'public' ? name : `${schema}.${name}`;
+        
+        if (!tables.find(t => t.fullName === fullName)) {
+          const tableInfo = {
+            schema,
+            name,
+            type: 'table',
+            fullName,
+            permissions: permissions.rows.find(p => p.schema_name === schema && p.table_name === name),
+            isAccessible: true // We can add more detailed permission checking here if needed
+          };
+          
+          tables.push(tableInfo);
+        }
+        
+        return tables;
+      }, []);
+    } catch (error) {
+      console.error('Error getting tables and views:', error);
+      throw error;
+    }
+  }
+}
+
+module.exports = DatabaseService;
