@@ -14,22 +14,56 @@ class AIService {
   formatSchemaForPrompt(schema) {
     let schemaText = 'Database Schema:\n\n';
     
-    for (const [schemaName, tables] of Object.entries(schema)) {
-      schemaText += `Schema: ${schemaName}\n`;
+    // Handle the actual schema structure from DatabaseService
+    if (schema.tables) {
+      // Group tables by schema
+      const tablesBySchema = {};
       
-      for (const [tableName, tableInfo] of Object.entries(tables)) {
-        schemaText += `\nTable: ${tableName}\n`;
-        schemaText += 'Columns:\n';
-        
-        tableInfo.columns.forEach(col => {
-          const constraints = col.constraints.length > 0 
-            ? ` (${col.constraints.join(', ')})` 
-            : '';
-          const nullable = col.nullable ? 'NULL' : 'NOT NULL';
-          schemaText += `  - ${col.name}: ${col.type} ${nullable}${constraints}\n`;
-        });
+      for (const [fullTableName, tableInfo] of Object.entries(schema.tables)) {
+        const schemaName = tableInfo.schema;
+        if (!tablesBySchema[schemaName]) {
+          tablesBySchema[schemaName] = {};
+        }
+        tablesBySchema[schemaName][tableInfo.name] = tableInfo;
       }
-      schemaText += '\n';
+      
+      // Format each schema and its tables
+      for (const [schemaName, tables] of Object.entries(tablesBySchema)) {
+        schemaText += `Schema: ${schemaName}\n`;
+        
+        for (const [tableName, tableInfo] of Object.entries(tables)) {
+          schemaText += `\nTable: ${tableName}\n`;
+          schemaText += 'Columns:\n';
+          
+          if (tableInfo.columns && Array.isArray(tableInfo.columns)) {
+            tableInfo.columns.forEach(col => {
+              // Build constraints array from available properties
+              const constraints = [];
+              if (col.primary_key) constraints.push('PRIMARY KEY');
+              if (col.foreign_key) {
+                constraints.push(`FOREIGN KEY REFERENCES ${col.foreign_key.table}(${col.foreign_key.column})`);
+              }
+              if (col.default) constraints.push(`DEFAULT ${col.default}`);
+              
+              const constraintText = constraints.length > 0 
+                ? ` (${constraints.join(', ')})` 
+                : '';
+              const nullable = col.nullable ? 'NULL' : 'NOT NULL';
+              schemaText += `  - ${col.name}: ${col.type} ${nullable}${constraintText}\n`;
+            });
+          }
+        }
+        schemaText += '\n';
+      }
+      
+      // Add views if any
+      if (schema.views && Object.keys(schema.views).length > 0) {
+        schemaText += 'Views:\n';
+        for (const [fullViewName, viewInfo] of Object.entries(schema.views)) {
+          schemaText += `\nView: ${viewInfo.name} (${viewInfo.schema})\n`;
+        }
+        schemaText += '\n';
+      }
     }
     
     return schemaText;
