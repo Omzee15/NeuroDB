@@ -233,6 +233,13 @@
                     </svg>
                     Stop
                   </button>
+                  <button class="btn-primary" id="executeSelectedBtn" title="Execute Selected Text">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M4 2l8 5-8 5V2z"/>
+                      <rect x="12" y="5" width="2" height="6"/>
+                    </svg>
+                    Execute Selected (Ctrl+Shift+Enter)
+                  </button>
                   <button class="btn-secondary" id="explainQueryBtn">Explain Query</button>
                   <button class="btn-secondary" id="queryHistoryBtn" title="Query History">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -242,6 +249,15 @@
                     History
                   </button>
                   <button class="btn-secondary" id="clearEditorBtn">Clear</button>
+                  <div class="limit-dropdown-container">
+                    <label for="limitSelect" class="limit-label">Limit:</label>
+                    <select class="limit-dropdown" id="limitSelect">
+                      <option value="100">100</option>
+                      <option value="1000">1000</option>
+                      <option value="10000">10000</option>
+                      <option value="all">All</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 

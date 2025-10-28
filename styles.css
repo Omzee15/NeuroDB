@@ -8,6 +8,7 @@
   --text-secondary: #858585;
   --accent-primary: #007acc;
   --accent-hover: #0098ff;
+  --accent-text: #ffffff;
   --success: #4ec9b0;
   --error: #f48771;
   --warning: #dcdcaa;
@@ -26,6 +27,7 @@
   --text-secondary: #737373;
   --accent-primary: #333333;
   --accent-hover: #262626;
+  --accent-text: #ffffff;
   --success: #16a34a;
   --error: #dc2626;
   --warning: #ca8a04;
@@ -42,6 +44,7 @@
   --text-secondary: hsl(215, 20.2%, 65.1%);
   --accent-primary: hsl(210, 40%, 98%);
   --accent-hover: hsl(210, 40%, 90%);
+  --accent-text: hsl(222.2, 84%, 4.9%);
   --success: #4ade80;
   --error: #ef4444;
   --warning: #facc15;
@@ -58,6 +61,7 @@
   --text-secondary: #858585;
   --accent-primary: #007acc;
   --accent-hover: #0098ff;
+  --accent-text: #ffffff;
   --success: #4ec9b0;
   --error: #f48771;
   --warning: #dcdcaa;
@@ -74,6 +78,7 @@
   --text-secondary: #93a1a1;
   --accent-primary: #268bd2;
   --accent-hover: #2aa198;
+  --accent-text: #ffffff;
   --success: #859900;
   --error: #dc322f;
   --warning: #b58900;
@@ -984,6 +989,42 @@ body {
   border-top: 1px solid var(--border-color);
   display: flex;
   gap: 10px;
+  align-items: center;
+}
+
+/* Limit Dropdown */
+.limit-dropdown-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.limit-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.limit-dropdown {
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 80px;
+}
+
+.limit-dropdown:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.limit-dropdown option {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 /* Resize Handle */
@@ -1452,7 +1493,7 @@ body {
 
 .btn-primary {
   background: var(--accent-primary);
-  color: white;
+  color: var(--accent-text);
 }
 
 .btn-primary:hover {
@@ -2080,14 +2121,14 @@ body {
 }
 
 .btn-primary {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: white;
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-text);
 }
 
 .btn-primary:hover {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .btn-primary:disabled {

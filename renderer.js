@@ -19,6 +19,7 @@ let currentTablesAndViews = []; // Store current database tables and views
 let selectedTableInfo = null; // Store currently selected table information
 let currentQueryId = null; // Track current query for cancellation
 let isQueryExecuting = false; // Track query execution state
+let currentLimit = 100; // Track current query limit
 
 // DOM Elements
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -48,7 +49,9 @@ const closeWhereBuilder = document.getElementById('closeWhereBuilder');
 
 // Query execution control elements
 const executeQueryBtn = document.getElementById('executeQueryBtn');
+const executeSelectedBtn = document.getElementById('executeSelectedBtn');
 const stopQueryBtn = document.getElementById('stopQueryBtn');
+const limitSelect = document.getElementById('limitSelect');
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
@@ -62,6 +65,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load saved snippets and variables
     loadSnippets();
     loadVariables();
+    
+    // Initialize limit dropdown
+    initializeLimitDropdown();
+    
+    // Initialize execute selected button state
+    updateExecuteSelectedButtonState();
     
     // Restore last active tab if any
     const lastTab = localStorage.getItem('lastActiveTab') || 'query';
@@ -402,6 +411,7 @@ function setupEventListeners() {
   
   // Query Editor
   document.getElementById('executeQueryBtn').addEventListener('click', executeQuery);
+  document.getElementById('executeSelectedBtn').addEventListener('click', executeSelectedQuery);
   document.getElementById('stopQueryBtn').addEventListener('click', stopQuery);
   document.getElementById('generateSQLBtn').addEventListener('click', generateSQL);
   document.getElementById('explainQueryBtn').addEventListener('click', explainQuery);
@@ -411,11 +421,19 @@ function setupEventListeners() {
     updateLineNumbers();
   });
   
+  // Limit dropdown
+  limitSelect.addEventListener('change', handleLimitChange);
+  
   // Line numbers and autocomplete
   queryEditor.addEventListener('input', () => {
     updateLineNumbers();
     handleAutocomplete();
   });
+  
+  // Update execute selected button state on selection change
+  queryEditor.addEventListener('selectionchange', updateExecuteSelectedButtonState);
+  queryEditor.addEventListener('keyup', updateExecuteSelectedButtonState);
+  queryEditor.addEventListener('mouseup', updateExecuteSelectedButtonState);
   
   queryEditor.addEventListener('scroll', () => {
     const lineNumbers = document.getElementById('lineNumbers');
@@ -424,6 +442,12 @@ function setupEventListeners() {
   
   // Keyboard shortcuts
   queryEditor.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'Enter') {
+      e.preventDefault();
+      executeSelectedQuery();
+      return;
+    }
+    
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       executeQuery();
@@ -1100,7 +1124,7 @@ function selectTable(schemaName, tableName, tableInfo) {
     formattedTableName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(formattedTableName) ? formattedTableName : `"${formattedTableName}"`;
   }
   
-  queryEditor.value = `SELECT\n  ${columnNames}\nFROM ${formattedTableName}\nLIMIT 100;`;
+  queryEditor.value = `SELECT\n  ${columnNames}\nFROM ${formattedTableName}${currentLimit === 'all' ? '' : `\nLIMIT ${currentLimit}`};`;
   
   // Update line numbers after setting the value
   updateLineNumbers();
@@ -1215,7 +1239,7 @@ function generateWhereQuery() {
     tableName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName) ? tableName : `"${tableName}"`;
   }
   
-  const query = `SELECT\n  ${columnNames}\nFROM ${tableName}\nWHERE ${whereClause}\nLIMIT 100;`;
+  const query = `SELECT\n  ${columnNames}\nFROM ${tableName}\nWHERE ${whereClause}${currentLimit === 'all' ? '' : `\nLIMIT ${currentLimit}`};`;
   
   // Set the query in the editor
   queryEditor.value = query;
@@ -1247,6 +1271,11 @@ async function executeQuery() {
   
   // Replace placeholders
   query = replacePlaceholders(query);
+  
+  // Apply limit if it's a SELECT query and doesn't already have a LIMIT
+  if (query.trim().toLowerCase().startsWith('select') && !/\blimit\s+\d+/i.test(query)) {
+    query = applyLimitToQuery(query);
+  }
   
   // Set execution state
   isQueryExecuting = true;
@@ -1343,6 +1372,189 @@ async function executeQuery() {
     isQueryExecuting = false;
     currentQueryId = null;
     updateQueryExecutionUI(false);
+  }
+}
+
+// Execute Selected Query
+async function executeSelectedQuery() {
+  if (!currentConnectionId) {
+    showNotification('Please connect to a database first', 'error');
+    return;
+  }
+  
+  // Get selected text from the query editor
+  const selectedText = queryEditor.value.substring(queryEditor.selectionStart, queryEditor.selectionEnd).trim();
+  
+  if (!selectedText) {
+    // If no text is selected, try to find the current line or statement
+    const cursorPosition = queryEditor.selectionStart;
+    const text = queryEditor.value;
+    const lines = text.split('\n');
+    
+    let currentLine = 0;
+    let characterCount = 0;
+    
+    // Find which line the cursor is on
+    for (let i = 0; i < lines.length; i++) {
+      if (characterCount + lines[i].length >= cursorPosition) {
+        currentLine = i;
+        break;
+      }
+      characterCount += lines[i].length + 1; // +1 for newline
+    }
+    
+    // Get the current line
+    const lineText = lines[currentLine].trim();
+    
+    if (!lineText || lineText.startsWith('--') || lineText.startsWith('/*')) {
+      showNotification('Please select some SQL text to execute, or place cursor on a line with SQL code', 'warning');
+      return;
+    }
+    
+    // Ask user if they want to execute the current line
+    if (confirm(`No text selected. Execute current line?\n\n"${lineText}"`)) {
+      var query = lineText;
+    } else {
+      return;
+    }
+  } else {
+    var query = selectedText;
+  }
+
+  // Prevent multiple simultaneous queries
+  if (isQueryExecuting) {
+    showNotification('A query is already executing', 'warning');
+    return;
+  }
+  
+  // Replace placeholders in selected text
+  query = replacePlaceholders(query);
+  
+  // Check if the query looks complete (basic validation)
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery.endsWith(';') && !trimmedQuery.toLowerCase().match(/^(select|insert|update|delete|create|drop|alter|grant|revoke|truncate|with)\b/i)) {
+    const confirmIncomplete = confirm(`The selected text doesn't appear to be a complete SQL statement:\n\n"${query}"\n\nExecute anyway?`);
+    if (!confirmIncomplete) {
+      return;
+    }
+  }
+  
+  // Apply limit if it's a SELECT query and doesn't already have a LIMIT
+  if (query.trim().toLowerCase().startsWith('select') && !/\blimit\s+\d+/i.test(query)) {
+    query = applyLimitToQuery(query);
+  }
+  
+  // Set execution state
+  isQueryExecuting = true;
+  currentQueryId = Date.now().toString();
+  
+  // Update UI for execution state
+  updateQueryExecutionUI(true);
+  
+  resultsInfo.innerHTML = '<div class="loading"></div> Executing selected text...';
+  resultsTableContainer.innerHTML = '';
+  
+  // Disable export buttons initially
+  disableExportButtons();
+  
+  try {
+    const startTime = Date.now();
+    const result = await window.api.executeQuery(currentConnectionId, query, currentQueryId);
+    const totalTime = Date.now() - startTime;
+    
+    // Add to query history
+    const historyItem = {
+      id: Date.now().toString(),
+      query: query,
+      timestamp: new Date().toISOString(),
+      executionTime: result.executionTime || totalTime,
+      success: result.success,
+      rowCount: result.rowCount || 0,
+      error: result.error || null,
+      connectionId: currentConnectionId,
+      isSelected: true // Mark as selected text execution
+    };
+    
+    queryHistory.unshift(historyItem); // Add to beginning
+    
+    // Keep only last 100 queries
+    if (queryHistory.length > 100) {
+      queryHistory = queryHistory.slice(0, 100);
+    }
+    
+    if (result.success) {
+      resultsInfo.textContent = `${result.rowCount} rows in ${result.executionTime}ms (selected text)`;
+      
+      // Update global state for cell editing
+      globalState.lastExecutedQuery = query;
+      globalState.lastQueryResults = result.rows || [];
+      
+      if (result.rows && result.rows.length > 0) {
+        renderResultsTable(result.rows, result.fields);
+      } else {
+        resultsTableContainer.innerHTML = `<div class="no-results">Selected query executed successfully. ${result.command} completed.</div>`;
+        // Disable export buttons for non-SELECT queries
+        disableExportButtons();
+      }
+      
+      showNotification('Selected query executed successfully', 'success');
+    } else {
+      resultsInfo.textContent = 'Error';
+      resultsTableContainer.innerHTML = `
+        <div class="no-results" style="color: var(--error);">
+          <strong>Error:</strong> ${result.error}
+          ${result.hint ? `<br><br><strong>Hint:</strong> ${result.hint}` : ''}
+        </div>
+      `;
+      // Disable export buttons on error
+      disableExportButtons();
+      showNotification('Selected query failed', 'error');
+    }
+  } catch (error) {
+    // Check if this was a cancellation
+    if (error.message && error.message.includes('cancel')) {
+      resultsInfo.textContent = 'Query cancelled';
+      resultsTableContainer.innerHTML = '<div class="no-results">Selected query execution was cancelled.</div>';
+      showNotification('Selected query cancelled', 'info');
+    } else {
+      // Add failed query to history
+      const historyItem = {
+        id: Date.now().toString(),
+        query: query,
+        timestamp: new Date().toISOString(),
+        executionTime: 0,
+        success: false,
+        rowCount: 0,
+        error: error.message,
+        connectionId: currentConnectionId,
+        isSelected: true
+      };
+      
+      queryHistory.unshift(historyItem);
+      
+      resultsInfo.textContent = 'Error';
+      resultsTableContainer.innerHTML = `<div class="no-results" style="color: var(--error);"><strong>Error:</strong> ${error.message}</div>`;
+      showNotification('Selected query failed', 'error');
+    }
+  } finally {
+    // Reset execution state
+    isQueryExecuting = false;
+    currentQueryId = null;
+    updateQueryExecutionUI(false);
+  }
+}
+
+// Update Execute Selected button state based on text selection
+function updateExecuteSelectedButtonState() {
+  const hasSelection = queryEditor.selectionStart !== queryEditor.selectionEnd;
+  const selectedText = queryEditor.value.substring(queryEditor.selectionStart, queryEditor.selectionEnd).trim();
+  
+  if (hasSelection && selectedText) {
+    executeSelectedBtn.style.opacity = '1';
+    executeSelectedBtn.title = `Execute Selected Text: "${selectedText.substring(0, 50)}${selectedText.length > 50 ? '...' : ''}"`;
+  } else {
+    executeSelectedBtn.style.opacity = '0.7';
+    executeSelectedBtn.title = 'Execute Selected Text (Ctrl+Shift+Enter) - Select text first or place cursor on a line';
   }
 }
 
@@ -1963,6 +2175,52 @@ function saveSnippets() {
 
 function saveVariables() {
   localStorage.setItem('neurodb_variables', JSON.stringify(variables));
+}
+
+// Initialize limit dropdown
+function initializeLimitDropdown() {
+  // Load saved limit preference
+  const savedLimit = localStorage.getItem('neurodb_query_limit');
+  if (savedLimit) {
+    currentLimit = savedLimit === 'all' ? 'all' : parseInt(savedLimit);
+    limitSelect.value = savedLimit;
+  } else {
+    currentLimit = 100;
+    limitSelect.value = '100';
+  }
+}
+
+// Handle limit dropdown change
+function handleLimitChange() {
+  const selectedValue = limitSelect.value;
+  currentLimit = selectedValue === 'all' ? 'all' : parseInt(selectedValue);
+  
+  // Save preference
+  localStorage.setItem('neurodb_query_limit', selectedValue);
+  
+  // Show notification about the change
+  const limitText = currentLimit === 'all' ? 'no limit' : `${currentLimit} rows`;
+  showNotification(`Query limit set to ${limitText}`, 'info');
+}
+
+// Apply limit to query string
+function applyLimitToQuery(query) {
+  if (currentLimit === 'all') {
+    return query;
+  }
+  
+  // Remove existing LIMIT clause if any
+  const cleanedQuery = query.replace(/\s+LIMIT\s+\d+\s*;?\s*$/i, '');
+  
+  // Add new LIMIT clause
+  const trimmedQuery = cleanedQuery.trim();
+  const hasTrailingSemicolon = trimmedQuery.endsWith(';');
+  
+  if (hasTrailingSemicolon) {
+    return trimmedQuery.slice(0, -1) + `\nLIMIT ${currentLimit};`;
+  } else {
+    return trimmedQuery + `\nLIMIT ${currentLimit}`;
+  }
 }
 
 // Render Snippets
