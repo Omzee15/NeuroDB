@@ -10,8 +10,8 @@ const ConfigService = require('./services/ConfigService');
 
 let mainWindow;
 const dbService = new DatabaseService();
-const aiService = new AIService();
 const configService = new ConfigService();
+const aiService = new AIService(configService);
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -252,6 +252,32 @@ ipcMain.handle('save-file', async (event, { content, defaultPath, filters }) => 
       success: false,
       error: error.message
     };
+  }
+});
+
+// Config/API Key Operations
+ipcMain.handle('get-api-key-status', async () => {
+  return {
+    hasApiKey: configService.hasApiKey(),
+    hasUserApiKey: configService.hasUserApiKey(),
+    isAiAvailable: aiService.isAvailable(),
+    usingDefaultKey: !configService.hasUserApiKey()
+  };
+});
+
+ipcMain.handle('set-api-key', async (event, apiKey) => {
+  try {
+    const result = configService.setApiKey(apiKey);
+    if (result.success) {
+      // Reinitialize AI service with new API key
+      const AIService = require('./services/AIService');
+      Object.assign(aiService, new AIService(configService));
+      return { success: true, message: 'API key saved successfully' };
+    }
+    return result;
+  } catch (error) {
+    console.error('Error setting API key:', error);
+    return { success: false, error: error.message };
   }
 });
 

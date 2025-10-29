@@ -640,6 +640,31 @@
           <option value="solarized-light">Solarized Light</option>
         </select>
       </div>
+      
+      <div class="form-group" style="margin-top: 20px;">
+        <label for="apiKeyInput">Google AI API Key (Optional)</label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input 
+            type="password" 
+            id="apiKeyInput" 
+            placeholder="Enter your own API key (optional)"
+            style="flex: 1; padding: 8px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; font-size: 13px;"
+          />
+          <button class="btn-icon" id="toggleApiKeyVisibility" title="Show/Hide API Key">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 3C4.5 3 1.7 5.4 1 8c.7 2.6 3.5 5 7 5s6.3-2.4 7-5c-.7-2.6-3.5-5-7-5zm0 8.5c-2 0-3.5-1.5-3.5-3.5S6 4.5 8 4.5s3.5 1.5 3.5 3.5S10 11.5 8 11.5z"/>
+              <circle cx="8" cy="8" r="1.5"/>
+            </svg>
+          </button>
+        </div>
+        <div style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+          <span id="apiKeyStatus"></span>
+          <a href="https://makersuite.google.com/app/apikey" target="_blank" style="color: var(--accent-color); text-decoration: none; margin-left: 8px;">Get API Key</a>
+        </div>
+        <button class="btn-primary" id="saveApiKeyBtn" style="margin-top: 12px; width: 100%;">
+          Save API Key
+        </button>
+      </div>
     </div>
   </div>
 </div>

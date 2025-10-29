@@ -40,9 +40,13 @@ contextBridge.exposeInMainWorld('api', {
 
   // Config Management
   getConfig: (key) => ipcRenderer.invoke('get-config', key),
-  setConfig: (key, value) => ipcRenderer.invoke('set-config', { key, value }),
+  setConfig: (key, value) => ipcRenderer.invoke('set-config', key, value),
   getTheme: () => ipcRenderer.invoke('get-theme'),
   setTheme: (theme) => ipcRenderer.invoke('set-theme', theme),
+  
+  // API Key Management
+  getApiKeyStatus: () => ipcRenderer.invoke('get-api-key-status'),
+  setApiKey: (apiKey) => ipcRenderer.invoke('set-api-key', apiKey),
 
   // File Operations
   saveFile: (options) => ipcRenderer.invoke('save-file', options)

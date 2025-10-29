@@ -2,13 +2,20 @@ const { ChatGoogleGenerativeAI } = require('@langchain/google-genai');
 const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages');
 
 class AIService {
-  constructor() {
+  constructor(configService = null) {
+    // Get API key with fallback to default embedded key
+    const apiKey = configService ? configService.getApiKey() : (process.env.GOOGLE_API_KEY || 'AIzaSyDjbkIPkzH17KrYkYyoOWDuGVA0i24yaIk');
+    
     this.model = new ChatGoogleGenerativeAI({
       modelName: 'gemini-2.0-flash-exp',
-      apiKey: process.env.GOOGLE_API_KEY,
+      apiKey: apiKey,
       temperature: 0.3,
       maxOutputTokens: 2048,
     });
+  }
+
+  isAvailable() {
+    return this.model !== null;
   }
 
   formatSchemaForPrompt(schema) {
@@ -70,6 +77,14 @@ class AIService {
   }
 
   async generateSQL(prompt, schema) {
+    if (!this.isAvailable()) {
+      return {
+        success: false,
+        error: 'AI service is not available. Please configure your Google API key in Settings.',
+        query: null
+      };
+    }
+    
     try {
       const schemaText = this.formatSchemaForPrompt(schema);
 
@@ -127,6 +142,14 @@ If the request is unclear or cannot be fulfilled with the available schema, retu
   }
 
   async explainQuery(query, schema) {
+    if (!this.isAvailable()) {
+      return {
+        success: false,
+        error: 'AI service is not available. Please configure your Google API key in Settings.',
+        explanation: null
+      };
+    }
+    
     try {
       const schemaText = this.formatSchemaForPrompt(schema);
 

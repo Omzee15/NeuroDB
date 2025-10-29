@@ -576,6 +576,15 @@ function setupEventListeners() {
     changeTheme(e.target.value);
   });
   
+  // API Key Management
+  document.getElementById('saveApiKeyBtn').addEventListener('click', () => saveApiKey());
+  document.getElementById('toggleApiKeyVisibility').addEventListener('click', () => toggleApiKeyVisibility());
+  document.getElementById('apiKeyInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      saveApiKey();
+    }
+  });
+  
   // Add Database Modal
   document.getElementById('closeAddDatabaseModal').addEventListener('click', () => {
     document.getElementById('addDatabaseModal').classList.add('hidden');
@@ -3586,6 +3595,62 @@ function openSettingsModal() {
   
   // Set current theme in dropdown
   document.getElementById('themeSelect').value = currentTheme;
+  
+  // Load API key status
+  loadApiKeyStatus();
+}
+
+async function loadApiKeyStatus() {
+  try {
+    const status = await window.api.getApiKeyStatus();
+    const statusElement = document.getElementById('apiKeyStatus');
+    
+    if (status.hasUserApiKey) {
+      statusElement.textContent = '✓ Using your custom API key';
+      statusElement.style.color = 'var(--success-color)';
+    } else if (status.usingDefaultKey) {
+      statusElement.textContent = '✓ Using default API key (you can optionally set your own)';
+      statusElement.style.color = 'var(--info-color, #4a9eff)';
+    } else {
+      statusElement.textContent = '⚠ No API key configured';
+      statusElement.style.color = 'var(--warning-color)';
+    }
+  } catch (error) {
+    console.error('Error loading API key status:', error);
+  }
+}
+
+async function saveApiKey() {
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  const apiKey = apiKeyInput.value.trim();
+  
+  if (!apiKey) {
+    showNotification('Please enter an API key', 'error');
+    return;
+  }
+  
+  try {
+    const result = await window.api.setApiKey(apiKey);
+    if (result.success) {
+      showNotification('API key saved successfully', 'success');
+      apiKeyInput.value = '';
+      loadApiKeyStatus();
+    } else {
+      showNotification(result.error || 'Failed to save API key', 'error');
+    }
+  } catch (error) {
+    console.error('Error saving API key:', error);
+    showNotification('Failed to save API key', 'error');
+  }
+}
+
+function toggleApiKeyVisibility() {
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  if (apiKeyInput.type === 'password') {
+    apiKeyInput.type = 'text';
+  } else {
+    apiKeyInput.type = 'password';
+  }
 }
 
 // Query History Functions
