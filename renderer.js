@@ -187,7 +187,7 @@ function renderConnections() {
         <span class="server-name">${server.name}</span>
       </div>
       <div class="server-actions">
-        <button class="btn-icon" onclick="listDatabasesOnServer('${server.id}')" title="Add Database">
+        <button class="btn-icon" onclick="openAddDatabaseModal('${server.id}')" title="Add Database">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
           </svg>
@@ -876,13 +876,31 @@ async function openAddDatabaseModal(serverId) {
     
     if (result.success) {
       const server = connections.find(s => s.id === serverId);
-      const existingDbs = server?.databases?.map(db => db.database) || [];
+      const existingDbs = server?.databases?.map(db => db.name) || [];
       const availableDbs = result.databases.filter(dbName => !existingDbs.includes(dbName));
       
+      listContainer.innerHTML = '';
+      
+      // Add "Create New Database" button at the top
+      const createDbButton = document.createElement('button');
+      createDbButton.className = 'btn-primary';
+      createDbButton.style.width = '100%';
+      createDbButton.style.marginBottom = '12px';
+      createDbButton.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 6px;">
+          <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
+        </svg>
+        Create New Database
+      `;
+      createDbButton.onclick = () => showCreateDatabaseForm(serverId);
+      listContainer.appendChild(createDbButton);
+      
       if (availableDbs.length === 0) {
-        listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-secondary);">All databases have been added</div>';
+        const noDbsMsg = document.createElement('div');
+        noDbsMsg.style.cssText = 'text-align: center; padding: 20px; color: var(--text-secondary);';
+        noDbsMsg.textContent = 'All databases have been added';
+        listContainer.appendChild(noDbsMsg);
       } else {
-        listContainer.innerHTML = '';
         availableDbs.forEach(dbName => {
           const dbOption = document.createElement('div');
           dbOption.className = 'database-option';
@@ -1005,8 +1023,18 @@ async function loadTablesAndViews() {
   if (!currentConnectionId) return;
   
   try {
-    currentTablesAndViews = await window.api.getTablesAndViews(currentConnectionId);
-    console.log('Loaded tables and views:', currentTablesAndViews);
+    const result = await window.api.getTablesAndViews(currentConnectionId);
+    if (result.success) {
+      // Combine tables and views into a single array with type property
+      currentTablesAndViews = [
+        ...result.tables.map(t => ({ ...t, type: 'table' })),
+        ...result.views.map(v => ({ ...v, type: 'view' }))
+      ];
+      console.log('Loaded tables and views:', currentTablesAndViews);
+    } else {
+      console.error('Error loading tables and views:', result.error);
+      currentTablesAndViews = [];
+    }
   } catch (error) {
     console.error('Error loading tables and views:', error);
     currentTablesAndViews = [];
@@ -2484,16 +2512,17 @@ async function listDatabasesOnServer(serverId) {
       const addedDatabases = new Set(server?.databases?.map(db => db.name) || []);
 
       // List available databases (not yet added)
+      // result.databases is an array of strings (database names)
       const databases = result.databases || [];
-      databases.forEach(db => {
-        if (!db || !db.name) return; // Skip invalid entries
-        if (addedDatabases.has(db.name)) return; // Skip already added databases
+      databases.forEach(dbName => {
+        if (!dbName || typeof dbName !== 'string') return; // Skip invalid entries
+        if (addedDatabases.has(dbName)) return; // Skip already added databases
         
         const item = document.createElement('div');
         item.className = 'database-item';
         item.innerHTML = `
-          <div class="database-name">${db.name}</div>
-          <button class="btn-secondary btn-sm" onclick="addDatabaseToConnections('${serverId}', '${db.name}')">
+          <div class="database-name">${dbName}</div>
+          <button class="btn-secondary btn-sm" onclick="addDatabaseToConnections('${serverId}', '${dbName}')">
             Add
           </button>
         `;
