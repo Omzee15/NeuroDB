@@ -1822,7 +1822,6 @@ function setupSearchControls() {
       sortOption.value = fieldName;
       sortOption.textContent = fieldName;
       sortColumnSelect.appendChild(sortOption);
-    });
   }
   
   // Clear previous event listeners for search controls

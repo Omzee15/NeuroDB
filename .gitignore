@@ -9,3 +9,4 @@ build/icons/
 *.blockmap
 user-config.json
 changes
+.gitignore

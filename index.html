@@ -278,8 +278,21 @@
                     <input type="text" id="searchInput" class="search-input" placeholder="Search in results..." />
                     <button id="clearSearchBtn" class="clear-search-btn" title="Clear search">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                      </svg>
+                    </button>
+                    
+                    <!-- Sort Controls in same row -->
+                    <select id="sortColumnSelect" class="sort-column-select">
+                      <option value="">Sort by...</option>
+                    </select>
+                    <select id="sortOrderSelect" class="sort-order-select">
+                      <option value="asc">↑ Ascending</option>
+                      <option value="desc">↓ Descending</option>
+                    </select>
+                    <button id="clearSortBtn" class="clear-sort-btn" title="Clear sort">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18M7 12h10m-7 6h4"/>
                       </svg>
                     </button>
                   </div>
