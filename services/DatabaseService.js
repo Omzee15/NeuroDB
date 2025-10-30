@@ -8,7 +8,23 @@ class DatabaseService {
     this.databases = new Map(); // Database connections within servers
     this.pools = new Map();
     this.activeQueries = new Map(); // Track active queries for cancellation
-    this.configPath = path.join(__dirname, '../connections.json');
+    
+    // Use different paths for development vs production
+    try {
+      const { app } = require('electron');
+      if (app && app.isPackaged) {
+        // In packaged app, use user data directory
+        this.configPath = path.join(app.getPath('userData'), 'connections.json');
+      } else {
+        // In development, use the project directory
+        this.configPath = path.join(__dirname, '../connections.json');
+      }
+    } catch (error) {
+      // Fallback for cases where electron app is not available
+      this.configPath = path.join(__dirname, '../connections.json');
+    }
+    
+    console.log('DatabaseService config path:', this.configPath);
     this.loadConnections();
   }
 
@@ -161,6 +177,7 @@ class DatabaseService {
 
   loadConnections() {
     try {
+      // First check if connections file exists at config path
       if (fs.existsSync(this.configPath)) {
         const data = fs.readFileSync(this.configPath, 'utf8');
         const config = JSON.parse(data);
@@ -181,11 +198,31 @@ class DatabaseService {
           });
         }
 
-        console.log('Loaded connections:', {
+        console.log('Loaded connections from:', this.configPath, {
           servers: this.servers.size,
           databases: this.databases.size
         });
       } else {
+        // Try to migrate from development location if in packaged app
+        const devConfigPath = path.join(__dirname, '../connections.json');
+        if (this.configPath !== devConfigPath && fs.existsSync(devConfigPath)) {
+          console.log('Migrating connections from dev location to user data directory');
+          const data = fs.readFileSync(devConfigPath, 'utf8');
+          
+          // Ensure directory exists
+          const configDir = path.dirname(this.configPath);
+          if (!fs.existsSync(configDir)) {
+            fs.mkdirSync(configDir, { recursive: true });
+          }
+          
+          // Copy to new location
+          fs.writeFileSync(this.configPath, data, 'utf8');
+          
+          // Load the migrated data
+          this.loadConnections();
+          return;
+        }
+        
         console.log('No connections file found at:', this.configPath);
       }
     } catch (error) {

@@ -1093,6 +1093,76 @@ body {
   color: var(--text-secondary);
 }
 
+/* Results Search */
+.results-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 15px;
+}
+
+.search-column-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  min-width: 120px;
+}
+
+.search-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  min-width: 200px;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.clear-search-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.clear-search-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.clear-search-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Highlight search matches */
+.search-highlight {
+  background-color: var(--warning);
+  color: var(--bg-primary);
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+/* Hide filtered rows */
+.results-table tbody tr.filtered-out {
+  display: none;
+}
+
 .results-table-container {
   flex: 1;
   overflow: auto;
@@ -1113,20 +1183,95 @@ body {
 
 .results-table th {
   background: var(--bg-tertiary);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   padding: 10px 12px;
   text-align: left;
   font-weight: 600;
   border-bottom: 2px solid var(--border-color);
   position: sticky;
   top: 0;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.results-table th::before {
+  content: '';
+  position: absolute;
+  top: -15px;
+  left: 0;
+  right: 0;
+  height: 15px;
+  background: var(--bg-tertiary);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: -1;
 }
 
 .results-table th:first-child {
   width: 50px;
   text-align: center;
   background: var(--bg-secondary);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: var(--text-secondary);
   font-weight: 500;
+  z-index: 11;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.results-table th:first-child::before {
+  content: '';
+  position: absolute;
+  top: -15px;
+  left: 0;
+  right: 0;
+  height: 15px;
+  background: var(--bg-secondary);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: -1;
+}
+
+/* Column Resizing */
+.results-table th {
+  position: relative;
+  min-width: 80px;
+  user-select: none;
+}
+
+.results-table th:not(:last-child) {
+  border-right: 1px solid var(--border-color);
+}
+
+.results-table th .resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 12;
+}
+
+.results-table th .resize-handle:hover {
+  background: var(--accent-color);
+  opacity: 0.3;
+}
+
+.results-table th .resize-handle.resizing {
+  background: var(--accent-color);
+  opacity: 0.6;
+}
+
+.results-table.resizing {
+  user-select: none;
+  pointer-events: none;
+}
+
+.results-table.resizing th .resize-handle {
+  pointer-events: all;
 }
 
 .results-table td {

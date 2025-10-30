@@ -4,3 +4,8 @@ dist/
 *.log
 .DS_Store
 connections.json
+build/icons/
+*.asar
+*.blockmap
+user-config.json
+changes

@@ -271,6 +271,18 @@
                     <h4>Results</h4>
                     <div class="results-info" id="resultsInfo"></div>
                   </div>
+                  <div class="results-search" id="resultsSearch" style="display: none;">
+                    <select id="searchColumnSelect" class="search-column-select">
+                      <option value="">All Columns</option>
+                    </select>
+                    <input type="text" id="searchInput" class="search-input" placeholder="Search in results..." />
+                    <button id="clearSearchBtn" class="clear-search-btn" title="Clear search">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                    </button>
+                  </div>
                   <div class="export-buttons disabled" id="exportButtons">
                     <button class="export-btn" onclick="exportResults('json')" title="Export as JSON" disabled>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

@@ -1323,6 +1323,7 @@ async function executeQuery() {
   
   resultsInfo.innerHTML = '<div class="loading"></div> Executing...';
   resultsTableContainer.innerHTML = '';
+  hideSearchControls();
   
   // Disable export buttons initially
   disableExportButtons();
@@ -1362,6 +1363,7 @@ async function executeQuery() {
         renderResultsTable(result.rows, result.fields);
       } else {
         resultsTableContainer.innerHTML = `<div class="no-results">Query executed successfully. ${result.command} completed.</div>`;
+        hideSearchControls();
         // Disable export buttons for non-SELECT queries
         disableExportButtons();
       }
@@ -1384,6 +1386,7 @@ async function executeQuery() {
     if (error.message && error.message.includes('cancel')) {
       resultsInfo.textContent = 'Query cancelled';
       resultsTableContainer.innerHTML = '<div class="no-results">Query execution was cancelled.</div>';
+      hideSearchControls();
       showNotification('Query cancelled', 'info');
     } else {
       // Add failed query to history
@@ -1402,6 +1405,7 @@ async function executeQuery() {
       
       resultsInfo.textContent = 'Error';
       resultsTableContainer.innerHTML = `<div class="no-results" style="color: var(--error);"><strong>Error:</strong> ${error.message}</div>`;
+      hideSearchControls();
       showNotification('Query failed', 'error');
     }
   } finally {
@@ -1490,6 +1494,7 @@ async function executeSelectedQuery() {
   
   resultsInfo.innerHTML = '<div class="loading"></div> Executing selected text...';
   resultsTableContainer.innerHTML = '';
+  hideSearchControls();
   
   // Disable export buttons initially
   disableExportButtons();
@@ -1530,6 +1535,7 @@ async function executeSelectedQuery() {
         renderResultsTable(result.rows, result.fields);
       } else {
         resultsTableContainer.innerHTML = `<div class="no-results">Selected query executed successfully. ${result.command} completed.</div>`;
+        hideSearchControls();
         // Disable export buttons for non-SELECT queries
         disableExportButtons();
       }
@@ -1552,6 +1558,7 @@ async function executeSelectedQuery() {
     if (error.message && error.message.includes('cancel')) {
       resultsInfo.textContent = 'Query cancelled';
       resultsTableContainer.innerHTML = '<div class="no-results">Selected query execution was cancelled.</div>';
+      hideSearchControls();
       showNotification('Selected query cancelled', 'info');
     } else {
       // Add failed query to history
@@ -1571,6 +1578,7 @@ async function executeSelectedQuery() {
       
       resultsInfo.textContent = 'Error';
       resultsTableContainer.innerHTML = `<div class="no-results" style="color: var(--error);"><strong>Error:</strong> ${error.message}</div>`;
+      hideSearchControls();
       showNotification('Selected query failed', 'error');
     }
   } finally {
@@ -1636,6 +1644,20 @@ function renderResultsTable(rows, fields) {
   // Clear any existing selections
   clearAllSelections();
   
+  // Store original data for search functionality
+  window.currentQueryResults = rows;
+  // Extract field names properly - fields might be objects with 'name' property
+  if (fields && Array.isArray(fields)) {
+    window.currentQueryFields = fields.map(field => 
+      typeof field === 'string' ? field : (field.name || field)
+    );
+  } else {
+    window.currentQueryFields = Object.keys(rows[0] || {});
+  }
+  
+  // Show search controls and populate column dropdown
+  setupSearchControls();
+  
   // Header
   const thead = document.createElement('thead');
   const headerRow = document.createElement('tr');
@@ -1650,8 +1672,22 @@ function renderResultsTable(rows, fields) {
     th.textContent = key;
     th.dataset.columnIndex = colIndex;
     
+    // Add resize handle (except for the last column)
+    if (colIndex < Object.keys(rows[0]).length - 1) {
+      const resizeHandle = document.createElement('div');
+      resizeHandle.className = 'resize-handle';
+      resizeHandle.addEventListener('mousedown', (e) => {
+        startColumnResize(e, th, colIndex);
+      });
+      th.appendChild(resizeHandle);
+    }
+    
     // Add column selection handler
     th.addEventListener('click', (e) => {
+      // Don't trigger column selection if clicking on resize handle
+      if (e.target.classList.contains('resize-handle')) {
+        return;
+      }
       const isCtrlCmd = e.ctrlKey || e.metaKey;
       selectColumn(colIndex, isCtrlCmd);
       e.preventDefault();
@@ -1668,6 +1704,7 @@ function renderResultsTable(rows, fields) {
   
   rows.forEach((row, rowIndex) => {
     const tr = document.createElement('tr');
+    tr.dataset.originalIndex = rowIndex; // Store original index for search
     
     // Add line number cell
     const lineNumCell = document.createElement('td');
@@ -1749,9 +1786,290 @@ function renderResultsTable(rows, fields) {
   table.appendChild(tbody);
   resultsTableContainer.appendChild(table);
   
-  // Enable export buttons when we have results and store data
-  window.currentQueryResults = rows;
+  // Enable export buttons when we have results
   enableExportButtons();
+}
+
+// Search functionality for results
+function setupSearchControls() {
+  const searchContainer = document.getElementById('resultsSearch');
+  const columnSelect = document.getElementById('searchColumnSelect');
+  const searchInput = document.getElementById('searchInput');
+  const clearBtn = document.getElementById('clearSearchBtn');
+  
+  // Show search controls
+  searchContainer.style.display = 'flex';
+  
+  // Populate column dropdown
+  columnSelect.innerHTML = '<option value="">All Columns</option>';
+  if (window.currentQueryFields && window.currentQueryFields.length > 0) {
+    window.currentQueryFields.forEach(fieldName => {
+      const option = document.createElement('option');
+      option.value = fieldName;
+      option.textContent = fieldName;
+      columnSelect.appendChild(option);
+    });
+  }
+  
+  // Clear previous event listeners
+  searchInput.replaceWith(searchInput.cloneNode(true));
+  const newSearchInput = document.getElementById('searchInput');
+  columnSelect.replaceWith(columnSelect.cloneNode(true));
+  const newColumnSelect = document.getElementById('searchColumnSelect');
+  clearBtn.replaceWith(clearBtn.cloneNode(true));
+  const newClearBtn = document.getElementById('clearSearchBtn');
+  
+  // Re-populate column dropdown after cloning
+  newColumnSelect.innerHTML = '<option value="">All Columns</option>';
+  if (window.currentQueryFields && window.currentQueryFields.length > 0) {
+    window.currentQueryFields.forEach(fieldName => {
+      const option = document.createElement('option');
+      option.value = fieldName;
+      option.textContent = fieldName;
+      newColumnSelect.appendChild(option);
+    });
+  }
+  
+  // Add event listeners
+  newSearchInput.addEventListener('input', performSearch);
+  newColumnSelect.addEventListener('change', performSearch);
+  newClearBtn.addEventListener('click', clearSearch);
+}
+
+function performSearch() {
+  const searchInput = document.getElementById('searchInput');
+  const columnSelect = document.getElementById('searchColumnSelect');
+  const searchTerm = searchInput.value.toLowerCase().trim();
+  const selectedColumn = columnSelect.value;
+  
+  const table = document.querySelector('.results-table tbody');
+  if (!table) return;
+  
+  const rows = table.querySelectorAll('tr');
+  let visibleCount = 0;
+  
+  rows.forEach((row, index) => {
+    const cells = row.querySelectorAll('td');
+    let shouldShow = false;
+    
+    if (!searchTerm) {
+      shouldShow = true;
+    } else {
+      // Skip the first cell (line number)
+      for (let i = 1; i < cells.length; i++) {
+        const cell = cells[i];
+        const columnName = cell.dataset.columnName;
+        const cellValue = cell.dataset.fullValue || cell.textContent;
+        
+        // Check if we should search this column
+        if (!selectedColumn || columnName === selectedColumn) {
+          if (cellValue.toLowerCase().includes(searchTerm)) {
+            shouldShow = true;
+            // Highlight the match
+            highlightSearchTerm(cell, searchTerm);
+          } else {
+            // Remove existing highlights
+            removeHighlight(cell);
+          }
+        } else {
+          // Remove highlights from non-searched columns
+          removeHighlight(cell);
+        }
+      }
+    }
+    
+    if (shouldShow) {
+      row.classList.remove('filtered-out');
+      visibleCount++;
+      // Update line number for visible rows
+      const lineNumCell = cells[0];
+      lineNumCell.textContent = visibleCount;
+    } else {
+      row.classList.add('filtered-out');
+      // Remove all highlights when row is hidden
+      cells.forEach(cell => removeHighlight(cell));
+    }
+  });
+  
+  // Update results info
+  updateResultsInfo(visibleCount, rows.length);
+}
+
+function highlightSearchTerm(cell, searchTerm) {
+  const fullValue = cell.dataset.fullValue || cell.textContent;
+  const regex = new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi');
+  const highlightedText = fullValue.replace(regex, '<span class="search-highlight">$1</span>');
+  
+  // Only update if we're adding highlights
+  if (highlightedText !== fullValue) {
+    // Truncate for display if necessary
+    let displayText = highlightedText;
+    if (fullValue.length > 50) {
+      // Find the position of the first highlight
+      const highlightIndex = fullValue.toLowerCase().indexOf(searchTerm.toLowerCase());
+      if (highlightIndex !== -1) {
+        // Show context around the highlight
+        const start = Math.max(0, highlightIndex - 20);
+        const end = Math.min(fullValue.length, highlightIndex + searchTerm.length + 27);
+        let truncated = fullValue.substring(start, end);
+        if (start > 0) truncated = '...' + truncated;
+        if (end < fullValue.length) truncated = truncated + '...';
+        
+        displayText = truncated.replace(regex, '<span class="search-highlight">$1</span>');
+      }
+    }
+    
+    cell.innerHTML = displayText;
+  }
+}
+
+function removeHighlight(cell) {
+  const highlights = cell.querySelectorAll('.search-highlight');
+  if (highlights.length > 0) {
+    const fullValue = cell.dataset.fullValue || cell.textContent;
+    let displayValue = fullValue;
+    
+    // Truncate if necessary
+    if (displayValue.length > 50) {
+      displayValue = displayValue.substring(0, 47) + '...';
+    }
+    
+    cell.textContent = displayValue;
+  }
+}
+
+function clearSearch() {
+  const searchInput = document.getElementById('searchInput');
+  const columnSelect = document.getElementById('searchColumnSelect');
+  
+  searchInput.value = '';
+  columnSelect.value = '';
+  
+  // Remove all highlights and show all rows
+  const table = document.querySelector('.results-table tbody');
+  if (table) {
+    const rows = table.querySelectorAll('tr');
+    rows.forEach((row, index) => {
+      row.classList.remove('filtered-out');
+      
+      // Reset line numbers
+      const lineNumCell = row.querySelector('td:first-child');
+      if (lineNumCell) {
+        lineNumCell.textContent = index + 1;
+      }
+      
+      // Remove highlights
+      const cells = row.querySelectorAll('td');
+      cells.forEach(cell => removeHighlight(cell));
+    });
+    
+    // Update results info
+    updateResultsInfo(rows.length, rows.length);
+  }
+}
+
+// Column Resizing Functions
+let isResizing = false;
+let currentColumn = null;
+let startX = 0;
+let startWidth = 0;
+
+function startColumnResize(e, th, columnIndex) {
+  e.preventDefault();
+  e.stopPropagation();
+  
+  isResizing = true;
+  currentColumn = th;
+  startX = e.clientX;
+  startWidth = th.offsetWidth;
+  
+  // Add visual feedback
+  const table = th.closest('.results-table');
+  table.classList.add('resizing');
+  const handle = e.target;
+  handle.classList.add('resizing');
+  
+  // Add global event listeners
+  document.addEventListener('mousemove', handleColumnResize);
+  document.addEventListener('mouseup', stopColumnResize);
+  
+  // Prevent text selection during resize
+  document.body.style.userSelect = 'none';
+}
+
+function handleColumnResize(e) {
+  if (!isResizing || !currentColumn) return;
+  
+  e.preventDefault();
+  
+  const deltaX = e.clientX - startX;
+  const newWidth = Math.max(80, startWidth + deltaX); // Minimum width of 80px
+  
+  // Set the width on the header
+  currentColumn.style.width = newWidth + 'px';
+  currentColumn.style.minWidth = newWidth + 'px';
+  
+  // Find the column index and apply width to all cells in that column
+  const columnIndex = parseInt(currentColumn.dataset.columnIndex);
+  const table = currentColumn.closest('.results-table');
+  
+  // Apply width to all cells in this column
+  const rows = table.querySelectorAll('tr');
+  rows.forEach(row => {
+    const cell = row.children[columnIndex + 1]; // +1 because of line number column
+    if (cell) {
+      cell.style.width = newWidth + 'px';
+      cell.style.minWidth = newWidth + 'px';
+      cell.style.maxWidth = newWidth + 'px';
+    }
+  });
+}
+
+function stopColumnResize(e) {
+  if (!isResizing) return;
+  
+  isResizing = false;
+  
+  // Remove visual feedback
+  if (currentColumn) {
+    const table = currentColumn.closest('.results-table');
+    table.classList.remove('resizing');
+    const handle = table.querySelector('.resize-handle.resizing');
+    if (handle) {
+      handle.classList.remove('resizing');
+    }
+  }
+  
+  currentColumn = null;
+  
+  // Remove global event listeners
+  document.removeEventListener('mousemove', handleColumnResize);
+  document.removeEventListener('mouseup', stopColumnResize);
+  
+  // Restore text selection
+  document.body.style.userSelect = '';
+}
+
+function updateResultsInfo(visibleCount, totalCount) {
+  const resultsInfo = document.getElementById('resultsInfo');
+  if (resultsInfo) {
+    if (visibleCount === totalCount) {
+      resultsInfo.textContent = `${totalCount} rows`;
+    } else {
+      resultsInfo.textContent = `${visibleCount} of ${totalCount} rows`;
+    }
+  }
+}
+
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hideSearchControls() {
+  const searchContainer = document.getElementById('resultsSearch');
+  if (searchContainer) {
+    searchContainer.style.display = 'none';
+  }
 }
 
 // Export Functions
