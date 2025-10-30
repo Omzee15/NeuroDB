@@ -14,11 +14,25 @@ const configService = new ConfigService();
 const aiService = new AIService(configService);
 
 function createWindow() {
+  // Get the appropriate icon based on platform
+  let iconPath;
+  if (process.platform === 'darwin') {
+    // For development, use PNG instead of .icns to avoid loading issues
+    iconPath = path.join(__dirname, 'build/icons/512x512.png');
+  } else if (process.platform === 'win32') {
+    // Windows uses .ico files
+    iconPath = path.join(__dirname, 'build/icons/icon.ico');
+  } else {
+    // Linux and others use PNG
+    iconPath = path.join(__dirname, 'build/icons/512x512.png');
+  }
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1000,
     minHeight: 600,
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -29,6 +43,17 @@ function createWindow() {
     titleBarOverlay: false,
     frame: false
   });
+
+  // Set dock icon on macOS with error handling
+  if (process.platform === 'darwin') {
+    try {
+      // Use PNG for development as it's more reliable
+      const iconPath = path.join(__dirname, 'build/icons/512x512.png');
+      app.dock.setIcon(iconPath);
+    } catch (error) {
+      console.log('Failed to set dock icon:', error.message);
+    }
+  }
 
   mainWindow.loadFile('index.html');
 
