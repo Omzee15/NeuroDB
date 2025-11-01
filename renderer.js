@@ -568,6 +568,11 @@ function setupEventListeners() {
   // Refresh Schema
   document.getElementById('refreshSchemaBtn').addEventListener('click', loadDatabaseSchema);
   
+  // Database Search
+  document.getElementById('dbSearchInput').addEventListener('input', (e) => {
+    filterDatabaseTree(e.target.value);
+  });
+  
   // Settings
   document.getElementById('settingsBtn').addEventListener('click', () => openSettingsModal());
   document.getElementById('closeSettingsModal').addEventListener('click', () => {
@@ -1055,74 +1060,197 @@ function renderDatabaseTree(schema) {
   console.log('Rendering database tree with schema:', schema);
   dbTree.innerHTML = '';
   
-  if (!schema || Object.keys(schema).length === 0) {
+  if (!schema || (Object.keys(schema.tables || {}).length === 0 && Object.keys(schema.views || {}).length === 0)) {
     const emptyEl = document.createElement('div');
     emptyEl.className = 'tree-empty';
-    emptyEl.textContent = 'No tables found';
+    emptyEl.textContent = 'No tables or views found';
     dbTree.appendChild(emptyEl);
     return;
   }
   
-  for (const [schemaName, tables] of Object.entries(schema)) {
+  // Group tables and views by schema
+  const schemaGroups = {};
+  
+  // Add tables
+  if (schema.tables) {
+    for (const [fullTableName, tableInfo] of Object.entries(schema.tables)) {
+      const schemaName = tableInfo.schema;
+      if (!schemaGroups[schemaName]) {
+        schemaGroups[schemaName] = { tables: {}, views: {} };
+      }
+      schemaGroups[schemaName].tables[tableInfo.name] = tableInfo;
+    }
+  }
+  
+  // Add views
+  if (schema.views) {
+    for (const [fullViewName, viewInfo] of Object.entries(schema.views)) {
+      const schemaName = viewInfo.schema;
+      if (!schemaGroups[schemaName]) {
+        schemaGroups[schemaName] = { tables: {}, views: {} };
+      }
+      schemaGroups[schemaName].views[viewInfo.name] = viewInfo;
+    }
+  }
+  
+  for (const [schemaName, schemaData] of Object.entries(schemaGroups)) {
     const schemaEl = document.createElement('div');
     schemaEl.className = 'tree-item';
-    schemaEl.textContent = `📁 ${schemaName}`;
+    schemaEl.innerHTML = `📁 ${schemaName}`;
+    schemaEl.style.fontWeight = 'bold';
     
-    const tablesEl = document.createElement('div');
-    tablesEl.className = 'tree-children';
+    const schemaChildren = document.createElement('div');
+    schemaChildren.className = 'tree-children';
+    schemaChildren.style.display = 'block';
     
-    for (const [tableName, tableInfo] of Object.entries(tables)) {
-      const tableEl = document.createElement('div');
-      tableEl.className = 'tree-item';
+    // Create Tables folder
+    if (Object.keys(schemaData.tables).length > 0) {
+      const tablesFolder = document.createElement('div');
+      tablesFolder.className = 'tree-item';
+      tablesFolder.innerHTML = `� Tables (${Object.keys(schemaData.tables).length})`;
+      tablesFolder.style.color = 'var(--text-secondary)';
+      tablesFolder.style.cursor = 'pointer';
       
-      const tableContent = document.createElement('div');
-      tableContent.style.display = 'flex';
-      tableContent.style.justifyContent = 'space-between';
-      tableContent.style.alignItems = 'center';
-      tableContent.style.flex = '1';
+      const tablesChildren = document.createElement('div');
+      tablesChildren.className = 'tree-children';
+      tablesChildren.style.display = 'block';
       
-      const tableName_span = document.createElement('span');
-      tableName_span.innerHTML = `📋 ${tableName} <span style="color: var(--text-secondary); font-size: 11px;">(${tableInfo.columns.length})</span>`;
-      tableName_span.style.flex = '1';
-      tableName_span.style.cursor = 'pointer';
+      // Render tables
+      for (const [tableName, tableInfo] of Object.entries(schemaData.tables)) {
+        const tableEl = document.createElement('div');
+        tableEl.className = 'tree-item';
+        tableEl.dataset.type = 'table';
+        tableEl.dataset.schemaName = schemaName;
+        tableEl.dataset.itemName = tableName;
+        
+        const tableContent = document.createElement('div');
+        tableContent.style.display = 'flex';
+        tableContent.style.justifyContent = 'space-between';
+        tableContent.style.alignItems = 'center';
+        tableContent.style.flex = '1';
+        
+        const tableName_span = document.createElement('span');
+        tableName_span.innerHTML = `� ${tableName} <span style="color: var(--text-secondary); font-size: 11px;">(${tableInfo.columns.length})</span>`;
+        tableName_span.style.flex = '1';
+        tableName_span.style.cursor = 'pointer';
+        
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'btn-icon';
+        downloadBtn.title = 'Download Table Data';
+        downloadBtn.innerHTML = `
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 15h10"></path>
+            <path d="M8 3v9"></path>
+            <polyline points="4 9 8 13 12 9"></polyline>
+          </svg>
+        `;
+        downloadBtn.style.opacity = '0.6';
+        downloadBtn.style.padding = '2px 4px';
+        
+        downloadBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          downloadTableData(schemaName, tableName);
+        });
+        
+        tableName_span.addEventListener('click', () => {
+          selectTable(schemaName, tableName, tableInfo);
+        });
+        
+        tableContent.appendChild(tableName_span);
+        tableContent.appendChild(downloadBtn);
+        tableEl.appendChild(tableContent);
+        
+        tablesChildren.appendChild(tableEl);
+      }
       
-      const downloadBtn = document.createElement('button');
-      downloadBtn.className = 'btn-icon';
-      downloadBtn.title = 'Download Table Data';
-      downloadBtn.innerHTML = `
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 15h10"></path>
-          <path d="M8 3v9"></path>
-          <polyline points="4 9 8 13 12 9"></polyline>
-        </svg>
-      `;
-      downloadBtn.style.opacity = '0.6';
-      downloadBtn.style.padding = '2px 4px';
-      
-      downloadBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        downloadTableData(schemaName, tableName);
+      tablesFolder.addEventListener('click', (e) => {
+        if (e.target === tablesFolder) {
+          tablesChildren.style.display = tablesChildren.style.display === 'none' ? 'block' : 'none';
+        }
       });
       
-      tableName_span.addEventListener('click', () => {
-        selectTable(schemaName, tableName, tableInfo);
+      schemaChildren.appendChild(tablesFolder);
+      schemaChildren.appendChild(tablesChildren);
+    }
+    
+    // Create Views folder
+    if (Object.keys(schemaData.views).length > 0) {
+      const viewsFolder = document.createElement('div');
+      viewsFolder.className = 'tree-item';
+      viewsFolder.innerHTML = `👁️ Views (${Object.keys(schemaData.views).length})`;
+      viewsFolder.style.color = 'var(--text-secondary)';
+      viewsFolder.style.cursor = 'pointer';
+      
+      const viewsChildren = document.createElement('div');
+      viewsChildren.className = 'tree-children';
+      viewsChildren.style.display = 'block';
+      
+      // Render views
+      for (const [viewName, viewInfo] of Object.entries(schemaData.views)) {
+        const viewEl = document.createElement('div');
+        viewEl.className = 'tree-item';
+        viewEl.dataset.type = 'view';
+        viewEl.dataset.schemaName = schemaName;
+        viewEl.dataset.itemName = viewName;
+        
+        const viewContent = document.createElement('div');
+        viewContent.style.display = 'flex';
+        viewContent.style.justifyContent = 'space-between';
+        viewContent.style.alignItems = 'center';
+        viewContent.style.flex = '1';
+        
+        const viewName_span = document.createElement('span');
+        viewName_span.innerHTML = `� ${viewName} <span style="color: var(--text-secondary); font-size: 11px;">(view)</span>`;
+        viewName_span.style.flex = '1';
+        viewName_span.style.cursor = 'pointer';
+        
+        const downloadBtn = document.createElement('button');
+        downloadBtn.className = 'btn-icon';
+        downloadBtn.title = 'Download View Data';
+        downloadBtn.innerHTML = `
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 15h10"></path>
+            <path d="M8 3v9"></path>
+            <polyline points="4 9 8 13 12 9"></polyline>
+          </svg>
+        `;
+        downloadBtn.style.opacity = '0.6';
+        downloadBtn.style.padding = '2px 4px';
+        
+        downloadBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          downloadTableData(schemaName, viewName);
+        });
+        
+        viewName_span.addEventListener('click', () => {
+          selectView(schemaName, viewName, viewInfo);
+        });
+        
+        viewContent.appendChild(viewName_span);
+        viewContent.appendChild(downloadBtn);
+        viewEl.appendChild(viewContent);
+        
+        viewsChildren.appendChild(viewEl);
+      }
+      
+      viewsFolder.addEventListener('click', (e) => {
+        if (e.target === viewsFolder) {
+          viewsChildren.style.display = viewsChildren.style.display === 'none' ? 'block' : 'none';
+        }
       });
       
-      tableContent.appendChild(tableName_span);
-      tableContent.appendChild(downloadBtn);
-      tableEl.appendChild(tableContent);
-      
-      tablesEl.appendChild(tableEl);
+      schemaChildren.appendChild(viewsFolder);
+      schemaChildren.appendChild(viewsChildren);
     }
     
     schemaEl.addEventListener('click', (e) => {
       if (e.target === schemaEl) {
-        tablesEl.style.display = tablesEl.style.display === 'none' ? 'block' : 'none';
+        schemaChildren.style.display = schemaChildren.style.display === 'none' ? 'block' : 'none';
       }
     });
     
     dbTree.appendChild(schemaEl);
-    dbTree.appendChild(tablesEl);
+    dbTree.appendChild(schemaChildren);
   }
 }
 
@@ -1174,6 +1302,52 @@ function selectTable(schemaName, tableName, tableInfo) {
   event.target.classList.add('selected');
 }
 
+function selectView(schemaName, viewName, viewInfo) {
+  const fullViewName = `${schemaName}.${viewName}`;
+  
+  // Store selected view information
+  selectedTableInfo = {
+    schema: schemaName,
+    name: viewName,
+    fullName: fullViewName,
+    info: viewInfo,
+    type: 'view'
+  };
+  
+  // Handle view name formatting for PostgreSQL
+  let formattedViewName = fullViewName;
+  const nameParts = formattedViewName.split('.');
+  if (nameParts.length > 2) {
+    // Take the last two parts (schema.view)
+    formattedViewName = `${nameParts[nameParts.length - 2]}.${nameParts[nameParts.length - 1]}`;
+  } else if (nameParts.length === 1) {
+    // If no schema specified, use just the view name
+    formattedViewName = nameParts[0];
+  }
+  
+  // Quote view name parts if they contain special characters or are reserved words
+  const viewNameParts = formattedViewName.split('.');
+  if (viewNameParts.length === 2) {
+    const [schema, view] = viewNameParts;
+    const quotedSchema = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema) ? schema : `"${schema}"`;
+    const quotedView = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(view) ? view : `"${view}"`;
+    formattedViewName = `${quotedSchema}.${quotedView}`;
+  } else {
+    formattedViewName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(formattedViewName) ? formattedViewName : `"${formattedViewName}"`;
+  }
+  
+  queryEditor.value = `SELECT *\nFROM ${formattedViewName}${currentLimit === 'all' ? '' : `\nLIMIT ${currentLimit}`};`;
+  
+  // Update line numbers after setting the value
+  updateLineNumbers();
+  
+  // Hide where clause builder for views (since we don't have column info)
+  hideWhereClauseBuilder();
+  
+  document.querySelectorAll('.tree-item').forEach(el => el.classList.remove('selected'));
+  event.target.classList.add('selected');
+}
+
 // Where Clause Builder Functions
 function showWhereClauseBuilder(tableName, columns) {
   // Update table name in header
@@ -1199,6 +1373,84 @@ function showWhereClauseBuilder(tableName, columns) {
 function hideWhereClauseBuilder() {
   whereClauseBuilder.classList.add('hidden');
   selectedTableInfo = null;
+}
+
+function filterDatabaseTree(searchTerm) {
+  const dbTree = document.getElementById('dbTree');
+  const allTreeItems = dbTree.querySelectorAll('.tree-item');
+  const allTreeChildren = dbTree.querySelectorAll('.tree-children');
+  
+  if (!searchTerm.trim()) {
+    // Show all items if search is empty
+    allTreeItems.forEach(item => {
+      item.style.display = 'flex';
+    });
+    allTreeChildren.forEach(container => {
+      container.style.display = 'block';
+    });
+    return;
+  }
+  
+  const searchLower = searchTerm.toLowerCase();
+  
+  // First hide all items
+  allTreeItems.forEach(item => {
+    item.style.display = 'none';
+  });
+  allTreeChildren.forEach(container => {
+    container.style.display = 'none';
+  });
+  
+  // Get all schema containers (first level children)
+  const schemaElements = Array.from(dbTree.children).filter((child, index) => index % 2 === 0);
+  const schemaContainers = Array.from(dbTree.children).filter((child, index) => index % 2 === 1);
+  
+  schemaElements.forEach((schemaEl, schemaIndex) => {
+    const schemaContainer = schemaContainers[schemaIndex];
+    if (!schemaContainer) return;
+    
+    let schemaHasMatches = false;
+    
+    // Get Tables and Views folders within this schema
+    const folderElements = Array.from(schemaContainer.children).filter((child, index) => index % 2 === 0);
+    const folderContainers = Array.from(schemaContainer.children).filter((child, index) => index % 2 === 1);
+    
+    folderElements.forEach((folderEl, folderIndex) => {
+      const folderContainer = folderContainers[folderIndex];
+      if (!folderContainer) return;
+      
+      let folderHasMatches = false;
+      
+      // Check items within this folder (Tables or Views)
+      const items = folderContainer.querySelectorAll('.tree-item[data-type]');
+      
+      items.forEach(item => {
+        const itemName = item.dataset.itemName;
+        const schemaName = item.dataset.schemaName;
+        const fullName = `${schemaName}.${itemName}`;
+        
+        if (itemName.toLowerCase().includes(searchLower) || 
+            schemaName.toLowerCase().includes(searchLower) ||
+            fullName.toLowerCase().includes(searchLower)) {
+          item.style.display = 'flex';
+          folderHasMatches = true;
+          schemaHasMatches = true;
+        }
+      });
+      
+      // Show folder if it has matches
+      if (folderHasMatches) {
+        folderEl.style.display = 'flex';
+        folderContainer.style.display = 'block';
+      }
+    });
+    
+    // Show schema if it has matches
+    if (schemaHasMatches) {
+      schemaEl.style.display = 'flex';
+      schemaContainer.style.display = 'block';
+    }
+  });
 }
 
 function generateWhereQuery() {
