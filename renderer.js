@@ -531,6 +531,7 @@ function setupEventListeners() {
   
   // Sidebar and Database Browser toggles
   document.getElementById('toggleSidebarBtn')?.addEventListener('click', toggleSidebar);
+  document.getElementById('showSidebarBtn')?.addEventListener('click', toggleSidebar);
   document.getElementById('toggleDBBrowserBtn')?.addEventListener('click', toggleDBBrowser);
   document.getElementById('showDBBrowserBtn')?.addEventListener('click', toggleDBBrowser);
   
@@ -3306,15 +3307,18 @@ function renderRelationships(svg) {
 function toggleSidebar() {
   const sidebar = document.querySelector('.sidebar');
   const toggleBtn = document.getElementById('toggleSidebarBtn');
-  const icon = toggleBtn.querySelector('svg');
+  const showBtn = document.getElementById('showSidebarBtn');
+  const icon = toggleBtn?.querySelector('svg');
   
   sidebar.classList.toggle('hidden');
   
-  // Rotate the chevron icon
+  // Show/hide the show button in the title bar
   if (sidebar.classList.contains('hidden')) {
-    icon.style.transform = 'rotate(-90deg)';
+    if (icon) icon.style.transform = 'rotate(-90deg)';
+    if (showBtn) showBtn.classList.remove('hidden');
   } else {
-    icon.style.transform = 'rotate(0deg)';
+    if (icon) icon.style.transform = 'rotate(0deg)';
+    if (showBtn) showBtn.classList.add('hidden');
   }
 }
 

@@ -48,6 +48,11 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icons/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "identity": null,
       "target": [
         {
           "target": "dmg",
