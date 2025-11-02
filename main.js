@@ -3,6 +3,9 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
+// Set the application name
+app.setName('NeuroDB');
+
 // Import database and AI services
 const DatabaseService = require('./services/DatabaseService');
 const AIService = require('./services/AIService');
@@ -32,6 +35,7 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 600,
+    title: 'NeuroDB',
     icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
@@ -64,6 +68,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Ensure the app name is set for dock/taskbar
+  app.setName('NeuroDB');
+  
   createWindow();
 
   app.on('activate', () => {

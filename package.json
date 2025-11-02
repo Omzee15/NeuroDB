@@ -1,5 +1,5 @@
 {
-  "name": "neurodb",
+  "name": "NeuroDB",
   "version": "1.0.0",
   "description": "AI-powered PostgreSQL database management tool",
   "main": "main.js",
@@ -53,6 +53,10 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "identity": null,
+      "extendInfo": {
+        "CFBundleName": "NeuroDB",
+        "CFBundleDisplayName": "NeuroDB"
+      },
       "target": [
         {
           "target": "dmg",
