@@ -46,7 +46,12 @@
       "**/*",
       "!**/*.ts",
       "!*.map",
-      "build/icons/**/*"
+      "build/icons/**/*",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/pg/**/*",
+      "node_modules/pg-native/**/*"
     ],
     "extraResources": [
       {
@@ -63,10 +68,12 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "identity": null,
+      "type": "distribution",
       "extendInfo": {
         "CFBundleName": "NeuroDB",
         "CFBundleDisplayName": "NeuroDB",
-        "CFBundleIdentifier": "com.neurodb.app"
+        "CFBundleIdentifier": "com.neurodb.app",
+        "NSAppleEventsUsageDescription": "NeuroDB needs access to control other applications for database management."
       },
       "target": [
         {

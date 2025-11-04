@@ -35,7 +35,31 @@ Simply describe what you need in plain English, and the AI will generate the cor
 - **Google Gemini 2.0 Flash**: Large language model for SQL generation
 - **Modern JavaScript**: ES6+ for clean, maintainable code
 
-## Getting Started
+## Installation
+
+Download the latest release from the [Releases page](https://github.com/Omzee15/NeuroDB/releases).
+
+### macOS
+1. Download the appropriate DMG file (Intel or ARM64)
+2. Install to Applications folder
+3. Run this command in Terminal:
+```bash
+xattr -cr /Applications/NeuroDB.app
+```
+
+### Windows
+1. Download and run the `.exe` installer
+2. Click "More info" → "Run anyway" if SmartScreen appears
+
+### Linux
+```bash
+chmod +x NeuroDB-[version].AppImage
+./NeuroDB-[version].AppImage
+```
+
+---
+
+## Development Setup
 
 1. Clone the repository:
 ```bash
