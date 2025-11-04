@@ -2050,6 +2050,28 @@ body {
   gap: 8px;
 }
 
+.diagram-controls .btn-icon {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.diagram-controls .btn-icon:hover {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
 .dbml-editor {
   flex: 1;
   padding: 15px;
@@ -2072,9 +2094,29 @@ body {
 .dbml-canvas {
   flex: 1;
   background: var(--bg-primary);
-  overflow: auto;
+  overflow: hidden;
   position: relative;
+  padding: 0;
+  cursor: grab;
+  user-select: none;
+}
+
+.dbml-canvas.panning {
+  cursor: grabbing;
+}
+
+.dbml-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
   padding: 20px;
+  min-width: 2000px;
+  min-height: 2000px;
+}
+
+.dbml-viewport svg {
+  z-index: 1;
 }
 
 .db-table-card {
@@ -2086,6 +2128,8 @@ body {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   cursor: move;
   user-select: none;
+  pointer-events: auto;
+  z-index: 10;
 }
 
 .db-table-card.dragging {
@@ -2134,9 +2178,21 @@ body {
 }
 
 .column-key {
-  color: var(--warning);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
+  padding: 2px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
+.column-key[data-key="PK"] {
+  background: var(--warning);
+  color: #000;
+}
+
+.column-key[data-key="FK"] {
+  background: var(--accent-color);
+  color: white;
 }
 
 .relation-line {

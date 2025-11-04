@@ -13,6 +13,13 @@ let globalState = {
 };
 let dbmlTables = [];
 let dbmlRelationships = [];
+// DBML zoom and pan state
+let dbmlZoom = 1;
+let dbmlPanX = 0;
+let dbmlPanY = 0;
+let dbmlIsPanning = false;
+let dbmlLastPanX = 0;
+let dbmlLastPanY = 0;
 let currentTheme = 'vscode-dark'; // Will be loaded from config
 let autocompleteSelectedIndex = -1;
 let currentTablesAndViews = []; // Store current database tables and views
@@ -559,8 +566,20 @@ function setupEventListeners() {
   document.getElementById('renderDBMLBtn').addEventListener('click', renderDBML);
   document.getElementById('clearDBMLBtn').addEventListener('click', () => {
     document.getElementById('dbmlEditor').value = '';
-    document.getElementById('dbmlCanvas').innerHTML = '<div class="no-results">Render your DBML script to see the diagram</div>';
+    const viewport = document.getElementById('dbmlViewport');
+    if (viewport) {
+      viewport.innerHTML = '<div class="no-results">Render your DBML script to see the diagram</div>';
+    }
+    resetDBMLZoom();
   });
+
+  // DBML Zoom and Pan
+  document.getElementById('zoomInBtn').addEventListener('click', () => zoomDBML(1.2));
+  document.getElementById('zoomOutBtn').addEventListener('click', () => zoomDBML(0.8));
+  document.getElementById('resetZoomBtn').addEventListener('click', resetDBMLZoom);
+  
+  // Initialize DBML pan and zoom
+  initializeDBMLPanZoom();
   
   // Override execute query button to use placeholder replacement
   document.getElementById('executeQueryBtn').addEventListener('click', executeQuery);
@@ -3361,9 +3380,12 @@ function showDatabaseListModal(content) {
 function renderDBML() {
   const dbmlScript = document.getElementById('dbmlEditor').value;
   const canvas = document.getElementById('dbmlCanvas');
+  const viewport = document.getElementById('dbmlViewport');
   
   if (!dbmlScript.trim()) {
-    canvas.innerHTML = '<div class="no-results">Enter DBML script and click Render</div>';
+    if (viewport) {
+      viewport.innerHTML = '<div class="no-results">Enter DBML script and click Render</div>';
+    }
     return;
   }
   
@@ -3375,7 +3397,10 @@ function renderDBML() {
     renderDBMLDiagram();
     showNotification('Diagram rendered successfully', 'success');
   } catch (error) {
-    canvas.innerHTML = `<div class="no-results" style="color: var(--error);">Error parsing DBML: ${error.message}</div>`;
+    console.error('DBML Parse Error:', error);
+    if (viewport) {
+      viewport.innerHTML = `<div class="no-results" style="color: var(--error);">Error parsing DBML: ${error.message}</div>`;
+    }
     showNotification('Error parsing DBML', 'error');
   }
 }
@@ -3387,6 +3412,8 @@ function parseDBML(script) {
   const lines = script.split('\n').map(l => l.trim());
   let currentTable = null;
   
+  console.log('Parsing DBML with', lines.length, 'lines');
+  
   for (let line of lines) {
     if (line.startsWith('//') || !line) continue;
     
@@ -3395,19 +3422,40 @@ function parseDBML(script) {
       if (name) {
         currentTable = { name, columns: [], x: Math.random() * 400 + 50, y: Math.random() * 400 + 50 };
         tables.push(currentTable);
+        console.log('Found table:', name);
+      }
+    } else if (line.startsWith('Ref:')) {
+      // Handle separate Ref: statements
+      // Format: Ref: table1.column > table2.column or Ref: table1.column - table2.column
+      const refMatch = line.match(/Ref:\s*([^.\s]+)\.([^>\s-]+)\s*([>-])\s*([^.\s]+)\.([^\s]+)/);
+      if (refMatch) {
+        const [, fromTable, fromCol, direction, toTable, toCol] = refMatch;
+        relationships.push({
+          from: fromTable,
+          fromCol: fromCol,
+          to: toTable,
+          toCol: toCol,
+          direction: direction
+        });
+        console.log('Found separate relationship:', fromTable, '->', toTable);
       }
     } else if (currentTable && line.match(/^\w+\s+\w+/)) {
-      const match = line.match(/(\w+)\s+([\w()]+)(\s+\[(.*?)\])?/);
+      // Handle column definitions with complex attributes
+      const match = line.match(/(\w+)\s+([\w()]+)(\s+\[([^\]]*)\])?/);
       if (match) {
         const [, name, type, , attrs] = match;
         const column = {
           name,
           type,
           isPK: attrs?.includes('pk') || attrs?.includes('primary key'),
-          isFK: false
+          isFK: false,
+          isUnique: attrs?.includes('unique'),
+          notNull: attrs?.includes('not null'),
+          defaultValue: attrs?.match(/default:\s*([^,\]]+)/)?.[1]
         };
         
-        const refMatch = attrs?.match(/ref:\s*([><])\s*(\w+)\.(\w+)/);
+        // Handle inline reference syntax: ref: > table.column or ref: > table.column, not null
+        const refMatch = attrs?.match(/ref:\s*([><])\s*([^\s,\]]+)\.([^\s,\]]+)/);
         if (refMatch) {
           const [, dir, refTable, refCol] = refMatch;
           column.isFK = true;
@@ -3415,8 +3463,10 @@ function parseDBML(script) {
             from: currentTable.name,
             fromCol: name,
             to: refTable,
-            toCol: refCol
+            toCol: refCol,
+            direction: dir
           });
+          console.log('Found inline relationship:', currentTable.name, '->', refTable);
         }
         
         currentTable.columns.push(column);
@@ -3426,14 +3476,35 @@ function parseDBML(script) {
     }
   }
   
+  console.log('Parsed', tables.length, 'tables and', relationships.length, 'relationships');
+  
+  // Mark foreign key columns based on relationships
+  relationships.forEach(rel => {
+    const fromTable = tables.find(t => t.name === rel.from);
+    if (fromTable) {
+      const column = fromTable.columns.find(c => c.name === rel.fromCol);
+      if (column) {
+        column.isFK = true;
+      }
+    }
+  });
+  
   return { tables, relationships };
 }
 
 function renderDBMLDiagram() {
   const canvas = document.getElementById('dbmlCanvas');
-  canvas.innerHTML = '';
-  canvas.style.position = 'relative';
-  canvas.style.minHeight = '600px';
+  const viewport = document.getElementById('dbmlViewport');
+  
+  if (!viewport) {
+    console.error('DBML viewport not found');
+    return;
+  }
+  
+  // Clear viewport content
+  viewport.innerHTML = '';
+  viewport.style.position = 'relative';
+  viewport.style.minHeight = '600px';
   
   // Create SVG for relationship lines
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -3443,16 +3514,36 @@ function renderDBMLDiagram() {
   svg.style.width = '100%';
   svg.style.height = '100%';
   svg.style.pointerEvents = 'none';
-  canvas.appendChild(svg);
+  svg.style.zIndex = '1';
+  svg.style.overflow = 'visible';
+  viewport.appendChild(svg);
+  
+  // Auto-arrange tables to avoid overlapping
+  arrangeTablesGrid(dbmlTables);
   
   // Render tables
   dbmlTables.forEach(table => {
     const card = createTableCard(table);
-    canvas.appendChild(card);
+    viewport.appendChild(card);
   });
   
   // Render relationships
   setTimeout(() => renderRelationships(svg), 100);
+}
+
+function arrangeTablesGrid(tables) {
+  const tableWidth = 250;
+  const tableHeight = 200;
+  const padding = 50;
+  const cols = Math.ceil(Math.sqrt(tables.length));
+  
+  tables.forEach((table, index) => {
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    
+    table.x = col * (tableWidth + padding) + padding;
+    table.y = row * (tableHeight + padding) + padding;
+  });
 }
 
 function createTableCard(table) {
@@ -3465,11 +3556,22 @@ function createTableCard(table) {
   let html = `<div class="db-table-header">📋 ${table.name}</div><div class="db-table-body">`;
   
   table.columns.forEach(col => {
-    const key = col.isPK ? '<span class="column-key">PK</span>' : col.isFK ? '<span class="column-key">FK</span>' : '';
+    let key = '';
+    if (col.isPK) {
+      key = '<span class="column-key" data-key="PK">PK</span>';
+    } else if (col.isFK) {
+      key = '<span class="column-key" data-key="FK">FK</span>';
+    }
+    
+    let attributes = '';
+    if (col.notNull) attributes += ' NOT NULL';
+    if (col.isUnique) attributes += ' UNIQUE';
+    if (col.defaultValue) attributes += ` DEFAULT ${col.defaultValue}`;
+    
     html += `
       <div class="db-table-column">
-        <span class="column-name">${col.name}</span>
-        <span><span class="column-type">${col.type}</span> ${key}</span>
+        <span class="column-name">${col.name}${key}</span>
+        <span class="column-type">${col.type}${attributes}</span>
       </div>
     `;
   });
@@ -3501,8 +3603,8 @@ function makeDraggable(element, table) {
   
   document.addEventListener('mousemove', (e) => {
     if (isDragging) {
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
+      const dx = (e.clientX - startX) / dbmlZoom;
+      const dy = (e.clientY - startY) / dbmlZoom;
       const newLeft = startLeft + dx;
       const newTop = startTop + dy;
       element.style.left = newLeft + 'px';
@@ -3511,7 +3613,7 @@ function makeDraggable(element, table) {
       table.y = newTop;
       
       // Update relationship lines
-      const svg = document.querySelector('.dbml-canvas svg');
+      const svg = document.querySelector('.dbml-viewport svg');
       if (svg) renderRelationships(svg);
     }
   });
@@ -3532,27 +3634,128 @@ function renderRelationships(svg) {
     const toCard = document.querySelector(`[data-table-name="${rel.to}"]`);
     
     if (fromCard && toCard) {
-      const fromRect = fromCard.getBoundingClientRect();
-      const toRect = toCard.getBoundingClientRect();
-      const canvasRect = svg.parentElement.getBoundingClientRect();
+      // Use direct position from table data instead of getBoundingClientRect
+      const fromTable = dbmlTables.find(t => t.name === rel.from);
+      const toTable = dbmlTables.find(t => t.name === rel.to);
       
-      const x1 = fromRect.left + fromRect.width / 2 - canvasRect.left;
-      const y1 = fromRect.top + fromRect.height / 2 - canvasRect.top;
-      const x2 = toRect.left + toRect.width / 2 - canvasRect.left;
-      const y2 = toRect.top + toRect.height / 2 - canvasRect.top;
+      if (!fromTable || !toTable) return;
       
+      // Get actual card dimensions
+      const fromWidth = fromCard.offsetWidth;
+      const fromHeight = fromCard.offsetHeight;
+      const toWidth = toCard.offsetWidth;
+      const toHeight = toCard.offsetHeight;
+      
+      // Calculate edge connection points using table positions
+      const fromEdge = getTableEdgePointFromPosition(
+        fromTable.x, fromTable.y, fromWidth, fromHeight,
+        toTable.x, toTable.y, toWidth, toHeight
+      );
+      const toEdge = getTableEdgePointFromPosition(
+        toTable.x, toTable.y, toWidth, toHeight,
+        fromTable.x, fromTable.y, fromWidth, fromHeight
+      );
+      
+      // Create the line
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', x1);
-      line.setAttribute('y1', y1);
-      line.setAttribute('x2', x2);
-      line.setAttribute('y2', y2);
+      line.setAttribute('x1', fromEdge.x);
+      line.setAttribute('y1', fromEdge.y);
+      line.setAttribute('x2', toEdge.x);
+      line.setAttribute('y2', toEdge.y);
       line.setAttribute('stroke', '#007acc');
       line.setAttribute('stroke-width', '2');
-      line.setAttribute('opacity', '0.6');
+      line.setAttribute('opacity', '0.7');
+      line.setAttribute('stroke-dasharray', '5,3');
       
       svg.appendChild(line);
     }
   });
+}
+
+function getTableEdgePoint(fromRect, toRect, canvasRect) {
+  const fromX = fromRect.left + fromRect.width / 2 - canvasRect.left;
+  const fromY = fromRect.top + fromRect.height / 2 - canvasRect.top;
+  const toX = toRect.left + toRect.width / 2 - canvasRect.left;
+  const toY = toRect.top + toRect.height / 2 - canvasRect.top;
+  
+  const fromLeft = fromRect.left - canvasRect.left;
+  const fromRight = fromRect.right - canvasRect.left;
+  const fromTop = fromRect.top - canvasRect.top;
+  const fromBottom = fromRect.bottom - canvasRect.top;
+  
+  // Calculate direction vector
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  
+  // Determine which edge to connect to based on direction
+  let x, y;
+  
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal connection preferred
+    if (dx > 0) {
+      // Connect to right edge
+      x = fromRight;
+      y = fromY;
+    } else {
+      // Connect to left edge
+      x = fromLeft;
+      y = fromY;
+    }
+  } else {
+    // Vertical connection preferred
+    if (dy > 0) {
+      // Connect to bottom edge
+      x = fromX;
+      y = fromBottom;
+    } else {
+      // Connect to top edge
+      x = fromX;
+      y = fromTop;
+    }
+  }
+  
+  return { x, y };
+}
+
+function getTableEdgePointFromPosition(x, y, width, height, toX, toY, toWidth, toHeight) {
+  // Calculate centers
+  const fromCenterX = x + width / 2;
+  const fromCenterY = y + height / 2;
+  const toCenterX = toX + toWidth / 2;
+  const toCenterY = toY + toHeight / 2;
+  
+  // Calculate direction vector
+  const dx = toCenterX - fromCenterX;
+  const dy = toCenterY - fromCenterY;
+  
+  // Determine which edge to connect to based on direction
+  let edgeX, edgeY;
+  
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal connection preferred
+    if (dx > 0) {
+      // Connect to right edge
+      edgeX = x + width;
+      edgeY = fromCenterY;
+    } else {
+      // Connect to left edge
+      edgeX = x;
+      edgeY = fromCenterY;
+    }
+  } else {
+    // Vertical connection preferred
+    if (dy > 0) {
+      // Connect to bottom edge
+      edgeX = fromCenterX;
+      edgeY = y + height;
+    } else {
+      // Connect to top edge
+      edgeX = fromCenterX;
+      edgeY = y;
+    }
+  }
+  
+  return { x: edgeX, y: edgeY };
 }
 
 // Toggle Sidebar and Database Browser
@@ -4457,6 +4660,124 @@ window.addDatabaseToConnections = addDatabaseToConnections;
 window.showCreateDatabaseForm = showCreateDatabaseForm;
 window.hideCreateDatabaseForm = hideCreateDatabaseForm;
 window.createNewDatabase = createNewDatabase;
+
+// DBML Zoom and Pan Functions
+function initializeDBMLPanZoom() {
+  const canvas = document.getElementById('dbmlCanvas');
+  
+  // Mouse wheel zoom
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    zoomDBMLAtPoint(zoomFactor, mouseX, mouseY);
+  });
+  
+  // Mouse pan
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.target === canvas || e.target.classList.contains('dbml-viewport')) {
+      dbmlIsPanning = true;
+      dbmlLastPanX = e.clientX;
+      dbmlLastPanY = e.clientY;
+      canvas.classList.add('panning');
+      e.preventDefault();
+    }
+  });
+  
+  document.addEventListener('mousemove', (e) => {
+    if (dbmlIsPanning) {
+      const deltaX = e.clientX - dbmlLastPanX;
+      const deltaY = e.clientY - dbmlLastPanY;
+      
+      dbmlPanX += deltaX;
+      dbmlPanY += deltaY;
+      
+      dbmlLastPanX = e.clientX;
+      dbmlLastPanY = e.clientY;
+      
+      updateDBMLTransform();
+    }
+  });
+  
+  document.addEventListener('mouseup', () => {
+    if (dbmlIsPanning) {
+      dbmlIsPanning = false;
+      document.getElementById('dbmlCanvas').classList.remove('panning');
+    }
+  });
+
+  // Keyboard shortcuts for zoom
+  document.addEventListener('keydown', (e) => {
+    const activeTab = document.querySelector('.header-tab.active');
+    if (activeTab && activeTab.dataset.tab === 'dbml') {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '=' || e.key === '+') {
+          e.preventDefault();
+          zoomDBML(1.2);
+        } else if (e.key === '-') {
+          e.preventDefault();
+          zoomDBML(0.8);
+        } else if (e.key === '0') {
+          e.preventDefault();
+          resetDBMLZoom();
+        }
+      }
+    }
+  });
+}
+
+function zoomDBML(factor) {
+  const canvas = document.getElementById('dbmlCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+  
+  zoomDBMLAtPoint(factor, centerX, centerY);
+}
+
+function zoomDBMLAtPoint(factor, mouseX, mouseY) {
+  const newZoom = Math.max(0.1, Math.min(5, dbmlZoom * factor));
+  
+  if (newZoom !== dbmlZoom) {
+    // Adjust pan to zoom towards mouse position
+    dbmlPanX = mouseX - (mouseX - dbmlPanX) * (newZoom / dbmlZoom);
+    dbmlPanY = mouseY - (mouseY - dbmlPanY) * (newZoom / dbmlZoom);
+    
+    dbmlZoom = newZoom;
+    updateDBMLTransform();
+  }
+}
+
+function resetDBMLZoom() {
+  dbmlZoom = 1;
+  dbmlPanX = 0;
+  dbmlPanY = 0;
+  updateDBMLTransform();
+}
+
+function updateDBMLTransform() {
+  const viewport = document.getElementById('dbmlViewport');
+  const zoomLevel = document.getElementById('zoomLevel');
+  
+  if (viewport) {
+    viewport.style.transform = `translate(${dbmlPanX}px, ${dbmlPanY}px) scale(${dbmlZoom})`;
+    
+    // Add smooth transition for button-triggered zooms (not mouse wheel)
+    if (!dbmlIsPanning) {
+      viewport.style.transition = 'transform 0.2s ease-out';
+      setTimeout(() => {
+        viewport.style.transition = '';
+      }, 200);
+    }
+  }
+  
+  if (zoomLevel) {
+    zoomLevel.textContent = `${Math.round(dbmlZoom * 100)}%`;
+  }
+}
 window.closeQueryHistoryModal = closeQueryHistoryModal;
 window.clearQueryHistory = clearQueryHistory;
 

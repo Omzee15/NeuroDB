@@ -388,14 +388,20 @@
                 <div class="dbml-diagram-section">
                   <div class="dbml-diagram-header">
                     <h3>Database Diagram</h3>
-                    <div class="diagram-controls">
-                      <button class="btn-icon" id="zoomInBtn" title="Zoom In">+</button>
-                      <button class="btn-icon" id="zoomOutBtn" title="Zoom Out">-</button>
-                      <button class="btn-icon" id="resetZoomBtn" title="Reset">⟲</button>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                      <span id="zoomLevel" style="font-size: 12px; color: var(--text-secondary); min-width: 40px;">100%</span>
+                      <span style="font-size: 11px; color: var(--text-secondary); opacity: 0.7;">Scroll to zoom • Drag to pan</span>
+                      <div class="diagram-controls">
+                        <button class="btn-icon" id="zoomInBtn" title="Zoom In (Ctrl/Cmd + +)">+</button>
+                        <button class="btn-icon" id="zoomOutBtn" title="Zoom Out (Ctrl/Cmd + -)">-</button>
+                        <button class="btn-icon" id="resetZoomBtn" title="Reset Zoom (Ctrl/Cmd + 0)">⟲</button>
+                      </div>
                     </div>
                   </div>
                   <div class="dbml-canvas" id="dbmlCanvas">
-                    <div class="no-results">Render your DBML script to see the diagram</div>
+                    <div class="dbml-viewport" id="dbmlViewport">
+                      <div class="no-results">Render your DBML script to see the diagram</div>
+                    </div>
                   </div>
                 </div>
               </div>
