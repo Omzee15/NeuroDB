@@ -455,13 +455,15 @@ class DatabaseService {
         'n.nspname as schema_name, ' +
         'c.relname as table_name, ' +
         'a.attname as column_name, ' +
-        'format_type(a.atttypid, a.atttypmod) as data_type, ' +
+        't.typname as data_type, ' +
+        'format_type(a.atttypid, a.atttypmod) as full_data_type, ' +
         'NOT a.attnotnull as is_nullable, ' +
         'pg_get_expr(d.adbin, d.adrelid) as column_default, ' +
         'a.attnum as ordinal_position ' +
         'FROM pg_catalog.pg_class c ' +
         'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace ' +
         'JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid ' +
+        'JOIN pg_catalog.pg_type t ON t.oid = a.atttypid ' +
         'LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = c.oid AND d.adnum = a.attnum ' +
         "WHERE c.relkind = 'r' " +
         'AND a.attnum > 0 ' +

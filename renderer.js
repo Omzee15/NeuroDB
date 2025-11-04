@@ -563,6 +563,7 @@ function setupEventListeners() {
   document.getElementById('variableForm').addEventListener('submit', saveVariable);
   
   // DBML
+  document.getElementById('loadSchemaBtn').addEventListener('click', loadSchemaToDBML);
   document.getElementById('renderDBMLBtn').addEventListener('click', renderDBML);
   document.getElementById('clearDBMLBtn').addEventListener('click', () => {
     document.getElementById('dbmlEditor').value = '';
@@ -2896,10 +2897,28 @@ function switchMainTab(tabName) {
       if (psqlInput) psqlInput.focus();
       break;
     case 'dbml':
-      // Refresh DBML view if needed
-      const dbmlCanvas = document.getElementById('dbmlCanvas');
-      if (dbmlCanvas && dbmlCanvas.innerHTML.includes('no-results')) {
-        renderDBML();
+      // Auto-hide sidebar for better diagram viewing
+      const sidebar = document.querySelector('.sidebar');
+      const toggleBtn = document.getElementById('toggleSidebarBtn');
+      const showBtn = document.getElementById('showSidebarBtn');
+      const icon = toggleBtn?.querySelector('svg');
+      
+      if (sidebar && !sidebar.classList.contains('hidden')) {
+        sidebar.classList.add('hidden');
+        if (icon) icon.style.transform = 'rotate(-90deg)';
+        if (showBtn) showBtn.classList.remove('hidden');
+      }
+      
+      // Auto-load schema from connected database if editor is empty
+      const dbmlEditor = document.getElementById('dbmlEditor');
+      if (currentConnectionId && dbmlEditor && !dbmlEditor.value.trim()) {
+        loadSchemaToDBML();
+      } else if (!currentConnectionId) {
+        // Show message if not connected
+        const viewport = document.getElementById('dbmlViewport');
+        if (viewport && !dbmlEditor?.value.trim()) {
+          viewport.innerHTML = '<div class="no-results">Connect to a database or enter DBML script manually</div>';
+        }
       }
       break;
   }
@@ -3377,6 +3396,132 @@ function showDatabaseListModal(content) {
 }
 
 // DBML Rendering
+
+// Convert database schema to DBML format
+function convertSchemaToDBML() {
+  if (!currentSchema) return null;
+  
+  let dbml = `// Database Schema - Auto-generated\n`;
+  dbml += `// Generated at: ${new Date().toISOString()}\n\n`;
+  
+  const foreignKeys = [];
+  
+  // Process tables
+  if (currentSchema.tables) {
+    for (const [fullTableName, tableInfo] of Object.entries(currentSchema.tables)) {
+      const tableName = tableInfo.name;
+      dbml += `Table ${tableName} {\n`;
+      
+      // Add columns (columns is an array, not an object)
+      if (tableInfo.columns && Array.isArray(tableInfo.columns)) {
+        for (const colInfo of tableInfo.columns) {
+          // Clean up type to extract only the base type
+          let cleanType = colInfo.type || colInfo.data_type || 'unknown';
+          if (typeof cleanType === 'string') {
+            // Extract just the base data type, removing all constraints and modifiers
+            // Remove everything after common keywords
+            cleanType = cleanType.split(/\s+(NOT|DEFAULT|UNIQUE|CHECK|REFERENCES|CONSTRAINT|COLLATE)/i)[0];
+            // Remove precision/length specifications but keep the type name
+            cleanType = cleanType.replace(/\([^)]*\)/g, '');
+            // Remove any remaining whitespace
+            cleanType = cleanType.trim();
+            // Extract just the first word (the actual type)
+            cleanType = cleanType.split(/\s+/)[0];
+            // Remove any special characters that might be left
+            cleanType = cleanType.replace(/[^\w]/g, '');
+          }
+          
+          let line = `  ${colInfo.name} ${cleanType}`;
+          
+          // Add attributes
+          const attrs = [];
+          if (colInfo.primary_key) attrs.push('pk');
+          if (colInfo.unique) attrs.push('unique');
+          if (colInfo.nullable === 'NO' || colInfo.nullable === false) attrs.push('not null');
+          if (colInfo.default) {
+            // Clean up default value
+            let defaultVal = colInfo.default.toString();
+            defaultVal = defaultVal.replace(/^'|'$/g, '').replace(/::[\w\s]+$/, '');
+            if (defaultVal && defaultVal !== 'NULL') {
+              attrs.push(`default: ${defaultVal}`);
+            }
+          }
+          
+          if (attrs.length > 0) {
+            line += ` [${attrs.join(', ')}]`;
+          }
+          
+          dbml += line + '\n';
+        }
+      }
+      
+      dbml += '}\n\n';
+      
+      // Collect foreign keys
+      if (tableInfo.foreign_keys && Array.isArray(tableInfo.foreign_keys)) {
+        for (const fk of tableInfo.foreign_keys) {
+          foreignKeys.push({
+            from: tableName,
+            fromCol: fk.column_name,
+            to: fk.foreign_table_name,
+            toCol: fk.foreign_column_name
+          });
+        }
+      }
+    }
+  }
+  
+  // Add foreign key relationships
+  if (foreignKeys.length > 0) {
+    dbml += '// Foreign Key Relationships\n';
+    for (const fk of foreignKeys) {
+      dbml += `Ref: ${fk.from}.${fk.fromCol} > ${fk.to}.${fk.toCol}\n`;
+    }
+  }
+  
+  return dbml;
+}
+
+// Load schema from connected database and render
+async function loadSchemaToDBML() {
+  if (!currentConnectionId) {
+    showNotification('No database connected', 'warning');
+    return;
+  }
+  
+  try {
+    // Load schema if not already loaded
+    if (!currentSchema || Object.keys(currentSchema.tables || {}).length === 0) {
+      const result = await window.api.getDatabaseSchema(currentConnectionId);
+      if (result.success) {
+        currentSchema = result.schema;
+      } else {
+        showNotification('Failed to load schema: ' + result.error, 'error');
+        return;
+      }
+    }
+    
+    // Convert schema to DBML
+    const dbmlScript = convertSchemaToDBML();
+    if (dbmlScript) {
+      // Set the DBML editor content
+      const editor = document.getElementById('dbmlEditor');
+      if (editor) {
+        editor.value = dbmlScript;
+      }
+      
+      // Auto-render the diagram
+      renderDBML();
+      showNotification('Schema loaded successfully', 'success');
+    } else {
+      showNotification('No schema data available', 'warning');
+    }
+  } catch (error) {
+    console.error('Error loading schema to DBML:', error);
+    showNotification('Error loading schema: ' + error.message, 'error');
+  }
+}
+
 function renderDBML() {
   const dbmlScript = document.getElementById('dbmlEditor').value;
   const canvas = document.getElementById('dbmlCanvas');
@@ -3441,9 +3586,12 @@ function parseDBML(script) {
       }
     } else if (currentTable && line.match(/^\w+\s+\w+/)) {
       // Handle column definitions with complex attributes
-      const match = line.match(/(\w+)\s+([\w()]+)(\s+\[([^\]]*)\])?/);
+      // Updated regex to handle types with spaces, parentheses, and special chars
+      const match = line.match(/(\w+)\s+([\w()\[\],\s]+?)(\s+\[([^\]]*)\])?$/);
       if (match) {
-        const [, name, type, , attrs] = match;
+        const [, name, rawType, , attrs] = match;
+        // Clean the type: remove trailing spaces and extract base type only
+        const type = rawType.trim().split(/\s+/)[0];
         const column = {
           name,
           type,
@@ -4145,11 +4293,14 @@ function showCellPopover(event, columnName, fullValue, rowIndex, td) {
   header.textContent = `Column: ${columnName}`;
   
   // Create editable content area
+  const escapedValue = String(fullValue || '').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/`/g, '\\`');
+  const displayValue = String(fullValue || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  
   content.innerHTML = `
     <div class="cell-popover-view">
-      <pre class="cell-content-display">${fullValue}</pre>
+      <pre class="cell-content-display">${displayValue}</pre>
       <div class="cell-popover-actions">
-        <button class="btn-secondary btn-sm" onclick="startPopoverEdit('${columnName}', ${rowIndex}, '${fullValue.replace(/'/g, "\\'")}')">
+        <button class="btn-secondary btn-sm" onclick="startPopoverEdit('${columnName}', ${rowIndex}, \`${escapedValue}\`)">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2l2 2-8 8-4 1 1-4 8-8z"/>
           </svg>
@@ -4183,51 +4334,133 @@ function showCellPopover(event, columnName, fullValue, rowIndex, td) {
     popover.style.top = `${y - rect.height - 10}px`;
   }
   
+  // Prevent click events inside popover from closing it
+  popover.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+  
   // Hide popover when clicking elsewhere
   setTimeout(() => {
-    document.addEventListener('click', hideCellPopover);
+    const handleOutsideClick = (e) => {
+      if (!popover.contains(e.target)) {
+        hideCellPopover();
+      }
+    };
+    document.addEventListener('click', handleOutsideClick);
+    
+    // Store the handler so we can remove it later
+    popover._handleOutsideClick = handleOutsideClick;
   }, 0);
 }
 
 function hideCellPopover() {
   const popover = document.getElementById('cellPopover');
+  if (!popover) return;
+  
+  console.log('Hiding cell popover');
   popover.classList.add('hidden');
-  document.removeEventListener('click', hideCellPopover);
+  
+  // Clear the popover dataset
+  popover.dataset.columnName = '';
+  popover.dataset.rowIndex = '';
+  
+  // Remove the outside click listener
+  if (popover._handleOutsideClick) {
+    document.removeEventListener('click', popover._handleOutsideClick);
+    popover._handleOutsideClick = null;
+  }
 }
 
 // Start editing in the popover
 function startPopoverEdit(columnName, rowIndex, currentValue) {
+  console.log('Starting popover edit:', { columnName, rowIndex, currentValue });
   const content = document.getElementById('cellPopoverContent');
+  const popover = document.getElementById('cellPopover');
   
-  content.innerHTML = `
+  // Update popover dataset
+  if (popover) {
+    popover.dataset.columnName = columnName;
+    popover.dataset.rowIndex = rowIndex;
+    console.log('Updated popover dataset:', popover.dataset);
+  } else {
+    console.error('Popover element not found');
+    return;
+  }
+
+  const escapedForHTML = String(currentValue || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  
+  // Create button event handler content and use data attributes instead of inline onclick
+  const editContent = `
     <div class="cell-popover-edit">
       <label class="cell-edit-label">Editing: ${columnName}</label>
-      <textarea class="cell-edit-textarea" rows="4" cols="40">${currentValue}</textarea>
+      <textarea class="cell-edit-textarea" rows="4" cols="40">${escapedForHTML}</textarea>
       <div class="cell-popover-actions">
-        <button class="btn-primary btn-sm" onclick="saveCellEdit()">
+        <button class="btn-primary btn-sm save-edit-btn" 
+                data-column="${columnName}" 
+                data-row="${rowIndex}">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M15 2l-1 1-8 8-4-4 1-1 3 3 7-7z"/>
           </svg>
           Save
         </button>
-        <button class="btn-secondary btn-sm" onclick="cancelCellEdit('${columnName}', ${rowIndex}, '${currentValue.replace(/'/g, "\\'")}')">Cancel</button>
+        <button class="btn-secondary btn-sm cancel-edit-btn" 
+                data-column="${columnName}" 
+                data-row="${rowIndex}">
+          Cancel
+        </button>
       </div>
     </div>
   `;
+
+  content.innerHTML = editContent;
   
-  // Focus on textarea
-  const textarea = content.querySelector('.cell-edit-textarea');
-  textarea.focus();
-  textarea.select();
-  
-  // Handle Enter + Ctrl to save
-  textarea.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 'Enter') {
-      saveCellEdit();
-    } else if (e.key === 'Escape') {
+  // Store original value as a data attribute on the popover itself for easy access
+  popover.dataset.originalValue = String(currentValue || '');
+
+  // Add event listeners to the buttons after they're created
+  const saveBtn = content.querySelector('.save-edit-btn');
+  const cancelBtn = content.querySelector('.cancel-edit-btn');
+
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      console.log('Save button clicked');
+      try {
+        await saveCellEdit();
+      } catch (error) {
+        console.error('Error in saveCellEdit:', error);
+        showNotification('Error saving changes: ' + error.message, 'error');
+      }
+    });
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      console.log('Cancel button clicked');
       cancelCellEdit(columnName, rowIndex, currentValue);
-    }
-  });
+    });
+  }
+
+  // Focus the textarea
+  const editTextarea = content.querySelector('.cell-edit-textarea');
+  if (editTextarea) {
+    editTextarea.focus();
+    editTextarea.select();
+    
+    // Handle keyboard shortcuts
+    editTextarea.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        saveCellEdit();
+      } else if (e.key === 'Escape') {
+        cancelCellEdit(columnName, rowIndex, currentValue);
+      }
+    });
+  }
+
+  console.log('Edit popover created with event listeners');
 }
 
 // Make cell popover functions globally accessible
@@ -4239,13 +4472,16 @@ window.saveCellEdit = saveCellEdit;
 
 // Cancel editing and return to view mode
 function cancelCellEdit(columnName, rowIndex, originalValue) {
+  console.log('cancelCellEdit function called with:', { columnName, rowIndex, originalValue });
   const content = document.getElementById('cellPopoverContent');
+  const escapedValue = String(originalValue || '').replace(/'/g, "\\'").replace(/`/g, '\\`');
+  const displayValue = String(originalValue || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   
   content.innerHTML = `
     <div class="cell-popover-view">
-      <pre class="cell-content-display">${originalValue}</pre>
+      <pre class="cell-content-display">${displayValue}</pre>
       <div class="cell-popover-actions">
-        <button class="btn-secondary btn-sm" onclick="startPopoverEdit('${columnName}', ${rowIndex}, '${originalValue.replace(/'/g, "\\'")}')">
+        <button class="btn-secondary btn-sm" onclick="startPopoverEdit('${columnName}', ${rowIndex}, \`${escapedValue}\`)">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2l2 2-8 8-4 1 1-4 8-8z"/>
           </svg>
@@ -4259,116 +4495,165 @@ function cancelCellEdit(columnName, rowIndex, originalValue) {
 
 // Save cell edit
 async function saveCellEdit() {
-  const popover = document.getElementById('cellPopover');
-  const textarea = document.querySelector('.cell-edit-textarea');
-  const newValue = textarea.value;
-  const columnName = popover.dataset.columnName;
-  const rowIndex = parseInt(popover.dataset.rowIndex);
-  
-  try {
-    // Show loading state
-    const saveBtn = document.querySelector('.cell-popover-edit .btn-primary');
-    const originalText = saveBtn.innerHTML;
-    saveBtn.innerHTML = '<span>Saving...</span>';
-    saveBtn.disabled = true;
-    
-    // Get current query results to identify the table and construct WHERE clause
-    const currentResults = globalState.lastQueryResults;
-    if (!currentResults || !currentResults.length) {
-      throw new Error('No query results available for updating');
-    }
-    
-    // Try to identify primary key or unique identifier
-    const row = currentResults[rowIndex];
-    const primaryKeys = ['id', 'ID', 'Id', '_id', 'pk', 'primary_key'];
-    let whereClause = '';
-    let primaryKeyFound = false;
-    
-    // Look for a primary key column
-    for (const pk of primaryKeys) {
-      if (row.hasOwnProperty(pk)) {
-        whereClause = `${pk} = '${row[pk]}'`;
-        primaryKeyFound = true;
-        break;
-      }
-    }
-    
-    // If no primary key found, use all columns except the one being edited
-    if (!primaryKeyFound) {
-      const conditions = [];
-      for (const [key, value] of Object.entries(row)) {
-        if (key !== columnName) {
-          conditions.push(`${key} = '${value}'`);
+    try {
+        console.log('=== Starting saveCellEdit ===');
+        
+        // 1. Get all required elements and data
+        const popover = document.getElementById('cellPopover');
+        const textarea = document.querySelector('.cell-edit-textarea');
+        
+        // Log what we found
+        console.log('Found elements:', {
+            popover: !!popover,
+            textarea: !!textarea,
+            popoverData: popover ? popover.dataset : null,
+            textareaValue: textarea ? textarea.value : null
+        });
+
+        // 2. Validate all required elements and data
+        if (!popover || !textarea) {
+            throw new Error('Required elements not found');
         }
-      }
-      whereClause = conditions.join(' AND ');
+
+        if (!popover.dataset.rowIndex || !popover.dataset.columnName) {
+            throw new Error('Missing row or column information');
+        }
+
+        if (!currentConnectionId) {
+            throw new Error('No active database connection');
+        }
+
+        if (!globalState?.lastQueryResults?.length) {
+            throw new Error('No query results available');
+        }
+
+        // 3. Get the data we need
+        const rowIndex = parseInt(popover.dataset.rowIndex);
+        const columnName = popover.dataset.columnName;
+        const newValue = textarea.value;
+
+        console.log('Preparing to save:', { rowIndex, columnName, newValue });
+
+        // 4. Get the current row data
+        const currentRow = globalState.lastQueryResults[rowIndex];
+        if (!currentRow) {
+            throw new Error('Row data not found');
+        }
+
+        // 5. Extract table name from last executed query
+        const lastQuery = globalState.lastExecutedQuery;
+        const tableMatch = lastQuery.match(/FROM\s+([^\s]+)/i);
+        if (!tableMatch) {
+            throw new Error('Could not determine table name from last query');
+        }
+        const tableName = tableMatch[1];
+
+        // 6. Build the UPDATE query with smarter WHERE clause
+        // Try to use primary key or unique identifier instead of all columns
+        const whereConditions = [];
+        
+        // First, try to find a primary key column (usually 'id')
+        const primaryKeyColumns = ['id', 'ID', 'Id', '_id', 'pk', 'primary_key'];
+        let usedPrimaryKey = false;
+        
+        for (const pkCol of primaryKeyColumns) {
+            if (currentRow.hasOwnProperty(pkCol) && currentRow[pkCol] !== null && currentRow[pkCol] !== undefined) {
+                const pkValue = String(currentRow[pkCol]).replace(/'/g, "''");
+                whereConditions.push(`${pkCol} = '${pkValue}'`);
+                usedPrimaryKey = true;
+                console.log(`Using primary key ${pkCol} = '${pkValue}' for WHERE clause`);
+                break;
+            }
+        }
+        
+        // If no primary key found, use a combination of key columns (but not all)
+        if (!usedPrimaryKey) {
+            console.log('No primary key found, using multiple columns for WHERE clause');
+            const keyColumns = ['id', 'uid', 'call_uid', 'name', 'email', 'username'];
+            let addedConditions = 0;
+            
+            for (const [key, value] of Object.entries(currentRow)) {
+                if (key !== columnName && (keyColumns.includes(key.toLowerCase()) || addedConditions < 3)) {
+                    let sqlValue;
+                    if (value === null || value === undefined) {
+                        sqlValue = 'NULL';
+                        whereConditions.push(`${key} IS NULL`);
+                    } else {
+                        const stringValue = String(value);
+                        
+                        // Handle dates
+                        if (stringValue.includes('GMT') || stringValue.includes('UTC')) {
+                            try {
+                                const dateObj = new Date(stringValue);
+                                if (!isNaN(dateObj.getTime())) {
+                                    sqlValue = `'${dateObj.toISOString()}'`;
+                                } else {
+                                    sqlValue = `'${stringValue.replace(/'/g, "''")}'`;
+                                }
+                            } catch (e) {
+                                sqlValue = `'${stringValue.replace(/'/g, "''")}'`;
+                            }
+                        } else {
+                            sqlValue = `'${stringValue.replace(/'/g, "''")}'`;
+                        }
+                        whereConditions.push(`${key} = ${sqlValue}`);
+                    }
+                    addedConditions++;
+                    
+                    // Limit to avoid overly complex WHERE clauses
+                    if (addedConditions >= 3) break;
+                }
+            }
+        }
+
+        const updateValue = newValue.trim() === '' ? 'NULL' : `'${newValue.replace(/'/g, "''")}'`;
+        const updateQuery = `UPDATE ${tableName} 
+                           SET ${columnName} = ${updateValue} 
+                           WHERE ${whereConditions.join(' AND ')}`;
+
+        console.log('Executing update query:', updateQuery);
+
+        // 7. Execute the update
+        const result = await window.api.executeQuery(currentConnectionId, updateQuery);
+        
+        console.log('Query result:', result);
+        
+        if (!result.success) {
+            throw new Error(result.error || 'Update failed');
+        }
+
+        // Check if any rows were affected
+        if (result.rowsAffected !== undefined) {
+            console.log(`Rows affected: ${result.rowsAffected}`);
+            if (result.rowsAffected === 0) {
+                throw new Error('No rows were updated. The WHERE clause may not have matched any records.');
+            }
+        }
+
+        console.log('Update successful');
+
+        // 8. Update the UI
+        const cell = document.querySelector(`.results-table tbody tr:nth-child(${rowIndex + 1}) td[data-column-name="${columnName}"]`);
+        if (cell) {
+            // Update cell display
+            const displayValue = newValue.length > 50 ? newValue.substring(0, 47) + '...' : newValue;
+            cell.textContent = displayValue;
+            cell.title = newValue;
+            cell.dataset.fullValue = newValue;
+            cell.dataset.originalValue = newValue;
+
+            // Update global state
+            globalState.lastQueryResults[rowIndex][columnName] = newValue;
+        }
+
+        // 9. Show success and hide popover
+        showNotification('Value updated successfully', 'success');
+        hideCellPopover();
+
+    } catch (error) {
+        console.error('Error in saveCellEdit:', error);
+        showNotification(error.message, 'error');
     }
-    
-    // Extract table name from last query if possible
-    let tableName = '';
-    const lastQuery = globalState.lastExecutedQuery || '';
-    const fromMatch = lastQuery.match(/FROM\s+([^\s]+)/i);
-    if (fromMatch) {
-      tableName = fromMatch[1];
-    } else {
-      throw new Error('Could not determine table name from query');
-    }
-    
-    // Construct UPDATE query
-    const updateQuery = `UPDATE ${tableName} SET ${columnName} = '${newValue.replace(/'/g, "''")}' WHERE ${whereClause}`;
-    
-    // Execute update query
-    const updateResult = await window.api.executeQuery(currentConnectionId, updateQuery);
-    
-    if (updateResult.error) {
-      throw new Error(updateResult.error);
-    }
-    
-    // Update the cell in the table display
-    const tableBody = document.querySelector('#queryResultsTable tbody');
-    const rowElement = tableBody.children[rowIndex];
-    const cellIndex = Array.from(document.querySelectorAll('#queryResultsTable thead th')).findIndex(th => th.textContent === columnName);
-    
-    if (rowElement && cellIndex >= 0) {
-      const cell = rowElement.children[cellIndex];
-      const truncatedValue = newValue.length > 50 ? newValue.substring(0, 50) + '...' : newValue;
-      cell.innerHTML = `<span onclick="showCellPopover(event, '${columnName}', '${newValue.replace(/'/g, "\\'")}', ${rowIndex}, this)" style="cursor: pointer;">${truncatedValue}</span>`;
-      
-      // Update the global results
-      globalState.lastQueryResults[rowIndex][columnName] = newValue;
-    }
-    
-    // Show success and return to view mode
-    showNotification('Cell updated successfully', 'success');
-    
-    // Return to view mode with new value
-    const content = document.getElementById('cellPopoverContent');
-    content.innerHTML = `
-      <div class="cell-popover-view">
-        <pre class="cell-content-display">${newValue}</pre>
-        <div class="cell-popover-actions">
-          <button class="btn-secondary btn-sm" onclick="startPopoverEdit('${columnName}', ${rowIndex}, '${newValue.replace(/'/g, "\\'")}')">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2l2 2-8 8-4 1 1-4 8-8z"/>
-            </svg>
-            Edit
-          </button>
-          <button class="btn-secondary btn-sm" onclick="hideCellPopover()">Close</button>
-        </div>
-      </div>
-    `;
-    
-  } catch (error) {
-    console.error('Error updating cell:', error);
-    showNotification(`Error updating cell: ${error.message}`, 'error');
-    
-    // Reset button state
-    const saveBtn = document.querySelector('.cell-popover-edit .btn-primary');
-    if (saveBtn) {
-      saveBtn.innerHTML = originalText;
-      saveBtn.disabled = false;
-    }
-  }
 }
 
 let currentEditingCell = null;
@@ -4410,68 +4695,6 @@ function startCellEdit(td, rowIndex, columnName, currentValue) {
   input.addEventListener('blur', () => {
     saveCellEdit(td, rowIndex, columnName, input.value);
   });
-}
-
-async function saveCellEdit(td, rowIndex, columnName, newValue) {
-  if (!currentEditingCell) return;
-  
-  const originalValue = td.dataset.originalValue;
-  
-  // If value hasn't changed, just cancel
-  if (newValue === originalValue) {
-    cancelCellEdit();
-    return;
-  }
-  
-  try {
-    // Get the primary key or unique identifier for this row
-    const table = td.closest('table');
-    const headerRow = table.querySelector('thead tr');
-    const headers = Array.from(headerRow.querySelectorAll('th')).slice(1).map(th => th.textContent); // Skip line number header
-    
-    const currentRow = Array.from(table.querySelectorAll('tbody tr'))[rowIndex];
-    const rowData = {};
-    
-    Array.from(currentRow.querySelectorAll('td')).slice(1).forEach((cell, index) => { // Skip line number cell
-      const header = headers[index];
-      rowData[header] = cell.dataset.originalValue;
-    });
-    
-    // Try to find a primary key or unique column
-    // For now, we'll show a notification that manual editing needs more implementation
-    showNotification('Cell editing is in development. Use SQL UPDATE statements for now.', 'info');
-    cancelCellEdit();
-    
-    // TODO: Implement actual UPDATE query
-    // This would require:
-    // 1. Determining the table name
-    // 2. Finding primary key or unique columns
-    // 3. Building and executing UPDATE query
-    // 4. Refreshing the results
-    
-  } catch (error) {
-    showNotification('Error saving cell edit: ' + error.message, 'error');
-    cancelCellEdit();
-  }
-}
-
-function cancelCellEdit() {
-  if (!currentEditingCell) return;
-  
-  const td = currentEditingCell;
-  const originalValue = td.dataset.originalValue;
-  
-  // Restore original content
-  td.classList.remove('editing');
-  
-  let displayValue = originalValue;
-  if (displayValue.length > 50) {
-    displayValue = displayValue.substring(0, 47) + '...';
-  }
-  
-  td.textContent = displayValue;
-  
-  currentEditingCell = null;
 }
 
 // Theme Management

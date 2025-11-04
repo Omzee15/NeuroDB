@@ -2048,6 +2048,19 @@ body {
 .dbml-actions, .diagram-controls {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.dbml-actions button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.dbml-actions button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .diagram-controls .btn-icon {
