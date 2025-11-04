@@ -39,12 +39,21 @@
     "productName": "NeuroDB",
     "publish": null,
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "**/*",
       "!**/*.ts",
-      "!*.map"
+      "!*.map",
+      "build/icons/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icons",
+        "to": "icons",
+        "filter": ["**/*"]
+      }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -56,7 +65,8 @@
       "identity": null,
       "extendInfo": {
         "CFBundleName": "NeuroDB",
-        "CFBundleDisplayName": "NeuroDB"
+        "CFBundleDisplayName": "NeuroDB",
+        "CFBundleIdentifier": "com.neurodb.app"
       },
       "target": [
         {
@@ -69,14 +79,60 @@
         }
       ]
     },
+    "dmg": {
+      "title": "NeuroDB ${version}",
+      "icon": "build/icons/icon.icns",
+      "background": null,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
     "win": {
-      "target": "nsis",
-      "icon": "build/icons/icon.ico"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icons/icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icons/icon.ico",
+      "uninstallerIcon": "build/icons/icon.ico",
+      "installerHeaderIcon": "build/icons/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NeuroDB"
     },
     "linux": {
-      "target": "AppImage",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "build/icons",
-      "category": "Development"
+      "category": "Development",
+      "desktop": {
+        "Name": "NeuroDB",
+        "Comment": "AI-powered PostgreSQL database management tool",
+        "Categories": "Development;Database;"
+      },
+      "artifactName": "${productName}-${version}.${ext}"
     }
   }
 }
