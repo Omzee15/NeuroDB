@@ -63,14 +63,34 @@ jobs:
           name: linux-build
           path: dist/*.AppImage
 
-      - name: Upload release assets to GitHub
+      - name: Upload release assets to public releases repository
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
+          repository: Omzee15/NeuroDB-releases
+          tag_name: ${{ github.ref_name }}
+          name: NeuroDB ${{ github.ref_name }}
+          body: |
+            ## NeuroDB ${{ github.ref_name }}
+            
+            Download the appropriate version for your platform:
+            
+            ### macOS
+            - Intel Mac: `NeuroDB-*.dmg`
+            - Apple Silicon: `NeuroDB-*-arm64.dmg`
+            
+            ### Windows
+            - `NeuroDB-Setup-*.exe`
+            
+            ### Linux
+            - `NeuroDB-*.AppImage`
+            
+            ---
+            [View Source Code](https://github.com/Omzee15/NeuroDB)
           files: |
             dist/*.dmg
             dist/*.zip
             dist/*.exe
             dist/*.AppImage
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
