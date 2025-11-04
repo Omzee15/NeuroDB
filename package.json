@@ -37,6 +37,7 @@
   "build": {
     "appId": "com.neurodb.app",
     "productName": "NeuroDB",
+    "publish": null,
     "directories": {
       "output": "dist"
     },
