@@ -28,6 +28,11 @@ let currentQueryId = null; // Track current query for cancellation
 let isQueryExecuting = false; // Track query execution state
 let currentLimit = 100; // Track current query limit
 
+// PSQL Terminal state
+let psqlCommandHistory = []; // Store PSQL command history
+let psqlHistoryIndex = -1; // Current position in command history
+let psqlCurrentCommand = ''; // Store current command when navigating history
+
 // DOM Elements
 const welcomeScreen = document.getElementById('welcomeScreen');
 const databaseView = document.getElementById('databaseView');
@@ -519,6 +524,18 @@ function setupEventListeners() {
     if (e.key === 'Enter') {
       e.preventDefault();
       executePSQLCommand();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      navigatePSQLHistory('up');
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      navigatePSQLHistory('down');
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      clearPSQLInput();
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'End') {
+      e.preventDefault();
+      ensurePSQLOutputVisible();
     }
   });
   
@@ -2818,15 +2835,41 @@ async function executePSQLCommand() {
     return;
   }
   
+  // Add command to history (avoid duplicates and empty commands)
+  if (command && (psqlCommandHistory.length === 0 || psqlCommandHistory[psqlCommandHistory.length - 1] !== command)) {
+    psqlCommandHistory.push(command);
+    // Limit history to last 100 commands
+    if (psqlCommandHistory.length > 100) {
+      psqlCommandHistory.shift();
+    }
+  }
+  
+  // Reset history navigation
+  psqlHistoryIndex = -1;
+  psqlCurrentCommand = '';
+  
   addPSQLOutput('command', command);
   psqlInput.value = '';
   
   try {
-    const result = await window.api.executeQuery(currentConnectionId, command);
+    // Handle PostgreSQL meta-commands
+    const translatedQuery = translatePSQLCommand(command);
+    
+    if (translatedQuery === null) {
+      // Command was handled internally or is invalid
+      return;
+    }
+    
+    const result = await window.api.executeQuery(currentConnectionId, translatedQuery);
     
     if (result.success) {
       if (result.rows && result.rows.length > 0) {
-        addPSQLOutput('result', JSON.stringify(result.rows, null, 2));
+        // Format output based on the original command type
+        if (command.startsWith('\\d') || command.startsWith('\\l') || command === 'show databases') {
+          formatPSQLTableOutput(result.rows, command);
+        } else {
+          addPSQLOutput('result', JSON.stringify(result.rows, null, 2));
+        }
       } else {
         addPSQLOutput('result', `${result.command} - ${result.rowCount} rows affected`);
       }
@@ -2851,7 +2894,229 @@ function addPSQLOutput(type, content) {
   }
   
   psqlOutput.appendChild(line);
-  psqlOutput.scrollTop = psqlOutput.scrollHeight;
+  ensurePSQLOutputVisible();
+}
+
+// Translate PostgreSQL meta-commands to SQL queries
+function translatePSQLCommand(command) {
+  const cmd = command.toLowerCase().trim();
+  
+  // Handle \l - list databases
+  if (cmd === '\\l' || cmd === '\\list') {
+    return `SELECT datname as "Name", 
+                   pg_catalog.pg_get_userbyid(datdba) as "Owner",
+                   pg_catalog.pg_encoding_to_char(encoding) as "Encoding",
+                   datcollate as "Collate",
+                   datctype as "Ctype",
+                   pg_catalog.pg_size_pretty(pg_catalog.pg_database_size(datname)) as "Size"
+            FROM pg_catalog.pg_database
+            ORDER BY datname;`;
+  }
+  
+  // Handle \d - list tables, views, sequences
+  if (cmd === '\\d' || cmd === '\\dt' || cmd === '\\dv' || cmd === '\\ds') {
+    let relkindFilter = '';
+    if (cmd === '\\dt') {
+      relkindFilter = "AND c.relkind = 'r'"; // tables only
+    } else if (cmd === '\\dv') {
+      relkindFilter = "AND c.relkind = 'v'"; // views only
+    } else if (cmd === '\\ds') {
+      relkindFilter = "AND c.relkind = 'S'"; // sequences only
+    } else {
+      relkindFilter = "AND c.relkind IN ('r', 'v', 'S')"; // tables, views, sequences
+    }
+    
+    return `SELECT schemaname as "Schema", 
+                   tablename as "Name", 
+                   tableowner as "Owner",
+                   CASE 
+                     WHEN schemaname = 'public' THEN 'table'
+                     ELSE 'table'
+                   END as "Type"
+            FROM pg_catalog.pg_tables
+            WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+            UNION ALL
+            SELECT schemaname as "Schema", 
+                   viewname as "Name", 
+                   viewowner as "Owner",
+                   'view' as "Type"
+            FROM pg_catalog.pg_views
+            WHERE schemaname NOT IN ('information_schema', 'pg_catalog')
+            ORDER BY "Schema", "Name";`;
+  }
+  
+  // Handle \d <table_name> - describe table
+  if (cmd.startsWith('\\d ') && cmd.length > 3) {
+    const tableName = cmd.substring(3).trim();
+    return `SELECT 
+                a.attname as "Column",
+                pg_catalog.format_type(a.atttypid, a.atttypmod) as "Type",
+                CASE WHEN a.attnotnull THEN 'not null' ELSE '' END as "Nullable",
+                CASE WHEN a.atthasdef THEN pg_catalog.pg_get_expr(d.adbin, d.adrelid) ELSE '' END as "Default"
+            FROM pg_catalog.pg_attribute a
+            LEFT JOIN pg_catalog.pg_attrdef d ON (a.attrelid, a.attnum) = (d.adrelid, d.adnum)
+            WHERE a.attrelid = '${tableName}'::regclass
+            AND a.attnum > 0 
+            AND NOT a.attisdropped
+            ORDER BY a.attnum;`;
+  }
+  
+  // Handle MySQL-style commands for PostgreSQL compatibility
+  if (cmd === 'show databases') {
+    return `SELECT datname as "Database" FROM pg_catalog.pg_database WHERE datistemplate = false ORDER BY datname;`;
+  }
+  
+  if (cmd === 'show tables') {
+    return `SELECT tablename as "Tables" FROM pg_catalog.pg_tables WHERE schemaname = 'public' ORDER BY tablename;`;
+  }
+  
+  // Handle \q - quit (just show a message)
+  if (cmd === '\\q' || cmd === '\\quit') {
+    addPSQLOutput('result', 'Use the connection selector to disconnect');
+    return null;
+  }
+  
+  // Handle \h or \help
+  if (cmd === '\\h' || cmd === '\\help' || cmd === '\\?') {
+    const helpText = `Available commands:
+\\l, \\list          list databases
+\\d                  list tables, views, and sequences
+\\dt                 list tables
+\\dv                 list views
+\\ds                 list sequences
+\\d <table>          describe table
+\\q, \\quit           quit
+\\h, \\help, \\?       show this help
+show databases      list databases (MySQL style)
+show tables         list tables (MySQL style)
+
+Keyboard Shortcuts:
+↑ (Up Arrow)        previous command in history
+↓ (Down Arrow)      next command in history
+Escape              clear current input
+Enter               execute command
+Ctrl/Cmd + End      scroll to bottom of output
+
+You can also execute regular SQL queries.`;
+    addPSQLOutput('result', helpText);
+    return null;
+  }
+  
+  // If it's not a meta-command, return the original command
+  return command;
+}
+
+// Format output for table listing commands
+function formatPSQLTableOutput(rows, originalCommand) {
+  if (!rows || rows.length === 0) {
+    addPSQLOutput('result', 'No relations found.');
+    return;
+  }
+  
+  // Create a formatted table output
+  const headers = Object.keys(rows[0]);
+  
+  // Calculate column widths
+  const colWidths = headers.map(header => {
+    const maxContentWidth = Math.max(...rows.map(row => String(row[header] || '').length));
+    return Math.max(header.length, maxContentWidth);
+  });
+  
+  // Create header row
+  let output = '';
+  const headerRow = headers.map((header, i) => header.padEnd(colWidths[i])).join(' | ');
+  const separatorRow = colWidths.map(width => '-'.repeat(width)).join('-+-');
+  
+  output += headerRow + '\n';
+  output += separatorRow + '\n';
+  
+  // Add data rows
+  rows.forEach(row => {
+    const dataRow = headers.map((header, i) => 
+      String(row[header] || '').padEnd(colWidths[i])
+    ).join(' | ');
+    output += dataRow + '\n';
+  });
+  
+  output += `\n(${rows.length} row${rows.length === 1 ? '' : 's'})`;
+  
+  // Use <pre> tag to preserve formatting
+  const line = document.createElement('div');
+  line.className = 'psql-command';
+  line.innerHTML = `<div class="psql-result"><pre>${output}</pre></div>`;
+  psqlOutput.appendChild(line);
+  ensurePSQLOutputVisible();
+}
+
+// PSQL Command History Navigation
+function navigatePSQLHistory(direction) {
+  if (psqlCommandHistory.length === 0) return;
+  
+  // Save current command if we're starting navigation
+  if (psqlHistoryIndex === -1) {
+    psqlCurrentCommand = psqlInput.value;
+  }
+  
+  if (direction === 'up') {
+    if (psqlHistoryIndex === -1) {
+      // Start from the most recent command
+      psqlHistoryIndex = psqlCommandHistory.length - 1;
+    } else if (psqlHistoryIndex > 0) {
+      psqlHistoryIndex--;
+    }
+    psqlInput.value = psqlCommandHistory[psqlHistoryIndex];
+  } else if (direction === 'down') {
+    if (psqlHistoryIndex === -1) {
+      // Already at current command, do nothing
+      return;
+    } else if (psqlHistoryIndex < psqlCommandHistory.length - 1) {
+      psqlHistoryIndex++;
+      psqlInput.value = psqlCommandHistory[psqlHistoryIndex];
+    } else {
+      // Return to current command
+      psqlHistoryIndex = -1;
+      psqlInput.value = psqlCurrentCommand;
+    }
+  }
+  
+  // Move cursor to end of input and ensure it's visible
+  setTimeout(() => {
+    psqlInput.setSelectionRange(psqlInput.value.length, psqlInput.value.length);
+    psqlInput.focus();
+    // Scroll input into view if needed
+    psqlInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, 0);
+}
+
+function clearPSQLInput() {
+  psqlInput.value = '';
+  psqlHistoryIndex = -1;
+  psqlCurrentCommand = '';
+}
+
+// Enhanced PSQL output scrolling
+function ensurePSQLOutputVisible() {
+  // Smooth scroll to bottom
+  psqlOutput.scrollTo({
+    top: psqlOutput.scrollHeight,
+    behavior: 'smooth'
+  });
+}
+
+// Add keyboard shortcuts info to PSQL help
+function showPSQLKeyboardShortcuts() {
+  const shortcutsText = `Keyboard Shortcuts:
+↑ (Up Arrow)     - Previous command in history
+↓ (Down Arrow)   - Next command in history
+Escape           - Clear current input
+Enter            - Execute command
+
+Command History:
+- Last 100 commands are automatically saved
+- Navigate with arrow keys
+- Duplicate consecutive commands are filtered out`;
+  
+  addPSQLOutput('result', shortcutsText);
 }
 
 // Tab Switching

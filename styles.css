@@ -1626,8 +1626,11 @@ body {
   flex: 1;
   padding: 15px;
   overflow-y: auto;
+  overflow-x: hidden;
   font-size: 13px;
   line-height: 1.6;
+  scroll-behavior: smooth;
+  max-height: calc(100vh - 200px);
 }
 
 .terminal-welcome {
@@ -1647,6 +1650,15 @@ body {
   color: var(--text-primary);
   margin-left: 20px;
   margin-top: 5px;
+}
+
+.psql-result pre {
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre;
+  overflow-x: auto;
 }
 
 .psql-error {
@@ -1676,6 +1688,14 @@ body {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 13px;
   outline: none;
+  transition: all 0.2s ease;
+}
+
+.psql-input:focus {
+  box-shadow: 0 0 0 1px var(--border-color);
+  border-radius: 3px;
+  padding: 2px 4px;
+  margin: -2px -4px;
 }
 
 /* AI Panel */
