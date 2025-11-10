@@ -633,6 +633,204 @@ class DatabaseService {
       };
     }
   }
+
+  async generateDatabaseBackup(databaseId) {
+    try {
+      console.log('Generating database backup for databaseId:', databaseId);
+      const pool = this.pools.get(databaseId);
+      if (!pool) {
+        throw new Error('Not connected to database');
+      }
+
+      const connection = this.getConnection(databaseId);
+      if (!connection) {
+        throw new Error('Connection not found');
+      }
+
+      let backupSQL = '';
+      const timestamp = new Date().toISOString();
+      
+      // Add header
+      backupSQL += `-- NeuroDB Database Backup\n`;
+      backupSQL += `-- Database: ${connection.database}\n`;
+      backupSQL += `-- Host: ${connection.host}:${connection.port}\n`;
+      backupSQL += `-- Generated: ${timestamp}\n`;
+      backupSQL += `-- =====================================================\n\n`;
+
+      // Get all schemas
+      const schemasQuery = 'SELECT nspname as schema_name FROM pg_catalog.pg_namespace ' +
+        "WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+        "AND nspname NOT LIKE 'pg_%' " +
+        'ORDER BY nspname';
+      
+      const schemasResult = await pool.query(schemasQuery);
+
+      for (const schemaRow of schemasResult.rows) {
+        const schemaName = schemaRow.schema_name;
+        
+        backupSQL += `\n-- Schema: ${schemaName}\n`;
+        backupSQL += `CREATE SCHEMA IF NOT EXISTS ${schemaName};\n\n`;
+
+        // Get tables in this schema
+        const tablesQuery = `
+          SELECT c.relname as table_name
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relkind = 'r'
+          AND n.nspname = $1
+          ORDER BY c.relname
+        `;
+        
+        const tablesResult = await pool.query(tablesQuery, [schemaName]);
+
+        for (const tableRow of tablesResult.rows) {
+          const tableName = tableRow.table_name;
+          const fullTableName = `${schemaName}.${tableName}`;
+
+          // Get table structure
+          const columnsQuery = `
+            SELECT 
+              a.attname as column_name,
+              format_type(a.atttypid, a.atttypmod) as data_type,
+              NOT a.attnotnull as is_nullable,
+              pg_get_expr(d.adbin, d.adrelid) as column_default
+            FROM pg_catalog.pg_attribute a
+            LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            WHERE a.attrelid = $1::regclass
+            AND a.attnum > 0
+            AND NOT a.attisdropped
+            ORDER BY a.attnum
+          `;
+
+          const columnsResult = await pool.query(columnsQuery, [fullTableName]);
+
+          // Build CREATE TABLE statement
+          backupSQL += `-- Table: ${fullTableName}\n`;
+          backupSQL += `DROP TABLE IF EXISTS ${fullTableName} CASCADE;\n`;
+          backupSQL += `CREATE TABLE ${fullTableName} (\n`;
+
+          const columnDefs = columnsResult.rows.map((col, idx) => {
+            let def = `  ${col.column_name} ${col.data_type}`;
+            if (!col.is_nullable) {
+              def += ' NOT NULL';
+            }
+            if (col.column_default) {
+              def += ` DEFAULT ${col.column_default}`;
+            }
+            return def;
+          });
+
+          backupSQL += columnDefs.join(',\n');
+
+          // Get primary keys
+          const pkQuery = `
+            SELECT a.attname as column_name
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY(con.conkey)
+            WHERE con.conrelid = $1::regclass
+            AND con.contype = 'p'
+          `;
+          
+          const pkResult = await pool.query(pkQuery, [fullTableName]);
+          
+          if (pkResult.rows.length > 0) {
+            const pkColumns = pkResult.rows.map(r => r.column_name).join(', ');
+            backupSQL += `,\n  PRIMARY KEY (${pkColumns})`;
+          }
+
+          backupSQL += `\n);\n\n`;
+
+          // Get data
+          const dataResult = await pool.query(`SELECT * FROM ${fullTableName}`);
+          
+          if (dataResult.rows.length > 0) {
+            backupSQL += `-- Data for ${fullTableName}\n`;
+            
+            for (const row of dataResult.rows) {
+              const columns = Object.keys(row);
+              const values = columns.map(col => {
+                const val = row[col];
+                if (val === null) return 'NULL';
+                if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+                if (val instanceof Date) return `'${val.toISOString()}'`;
+                if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+                return val;
+              });
+
+              backupSQL += `INSERT INTO ${fullTableName} (${columns.join(', ')}) VALUES (${values.join(', ')});\n`;
+            }
+            
+            backupSQL += '\n';
+          }
+        }
+
+        // Get views
+        const viewsQuery = `
+          SELECT c.relname as view_name, pg_get_viewdef(c.oid, true) as view_definition
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relkind = 'v'
+          AND n.nspname = $1
+          ORDER BY c.relname
+        `;
+        
+        const viewsResult = await pool.query(viewsQuery, [schemaName]);
+
+        for (const viewRow of viewsResult.rows) {
+          const viewName = viewRow.view_name;
+          const fullViewName = `${schemaName}.${viewName}`;
+          
+          backupSQL += `-- View: ${fullViewName}\n`;
+          backupSQL += `DROP VIEW IF EXISTS ${fullViewName} CASCADE;\n`;
+          backupSQL += `CREATE VIEW ${fullViewName} AS\n${viewRow.view_definition}\n\n`;
+        }
+      }
+
+      // Get foreign keys (add at the end to avoid dependency issues)
+      const fkQuery = `
+        SELECT
+          n1.nspname || '.' || c1.relname as table_name,
+          con.conname as constraint_name,
+          a1.attname as column_name,
+          n2.nspname || '.' || c2.relname as foreign_table_name,
+          a2.attname as foreign_column_name
+        FROM pg_catalog.pg_constraint con
+        JOIN pg_catalog.pg_class c1 ON con.conrelid = c1.oid
+        JOIN pg_catalog.pg_namespace n1 ON n1.oid = c1.relnamespace
+        JOIN pg_catalog.pg_class c2 ON con.confrelid = c2.oid
+        JOIN pg_catalog.pg_namespace n2 ON n2.oid = c2.relnamespace
+        JOIN pg_catalog.pg_attribute a1 ON a1.attrelid = c1.oid AND a1.attnum = ANY(con.conkey)
+        JOIN pg_catalog.pg_attribute a2 ON a2.attrelid = c2.oid AND a2.attnum = ANY(con.confkey)
+        WHERE con.contype = 'f'
+        AND n1.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+        AND n1.nspname NOT LIKE 'pg_%'
+        ORDER BY n1.nspname, c1.relname, con.conname
+      `;
+
+      const fkResult = await pool.query(fkQuery);
+
+      if (fkResult.rows.length > 0) {
+        backupSQL += `\n-- Foreign Keys\n`;
+        for (const fk of fkResult.rows) {
+          backupSQL += `ALTER TABLE ${fk.table_name} ADD CONSTRAINT ${fk.constraint_name} `;
+          backupSQL += `FOREIGN KEY (${fk.column_name}) REFERENCES ${fk.foreign_table_name}(${fk.foreign_column_name});\n`;
+        }
+      }
+
+      backupSQL += `\n-- Backup completed: ${new Date().toISOString()}\n`;
+
+      return {
+        success: true,
+        backup: backupSQL
+      };
+    } catch (error) {
+      console.error('Error generating database backup:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 module.exports = DatabaseService;

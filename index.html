@@ -109,7 +109,14 @@
         </div>
         
         <div class="top-bar-actions">
-          <!-- Removed toggle database browser button -->
+          <button class="btn-secondary hidden" id="backupDatabaseBtn" title="Download Database Backup">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 15h10"></path>
+              <path d="M8 3v9"></path>
+              <polyline points="4 9 8 13 12 9"></polyline>
+            </svg>
+            Backup
+          </button>
         </div>
       </div>
 
@@ -232,11 +239,29 @@
                 </div>
                 
                 <div class="editor-actions">
+                  <!-- File Operations -->
+                  <button class="btn-secondary" id="openSqlFileBtn" title="Open SQL File">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z"/>
+                      <circle cx="8" cy="8" r="2"/>
+                    </svg>
+                    Open
+                  </button>
+                  <button class="btn-secondary" id="saveSqlFileBtn" title="Save SQL File">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M12 12l-8 0V4l6 0l2 2l0 6z"/>
+                      <path d="M4 8h8"/>
+                    </svg>
+                    Save
+                  </button>
+                  <div class="editor-actions-divider"></div>
+
+                  <!-- Query Operations -->
                   <button class="btn-primary" id="executeQueryBtn">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                       <path d="M4 2l10 6-10 6V2z"/>
                     </svg>
-                    Execute (Ctrl+Enter)
+                    Execute
                   </button>
                   <button class="btn-danger hidden" id="stopQueryBtn">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -249,9 +274,9 @@
                       <path d="M4 2l8 5-8 5V2z"/>
                       <rect x="12" y="5" width="2" height="6"/>
                     </svg>
-                    Execute Selected (Ctrl+Shift+Enter)
+                    Execute Selected
                   </button>
-                  <button class="btn-secondary" id="explainQueryBtn">Explain Query</button>
+                  <button class="btn-secondary" id="explainQueryBtn">Explain</button>
                   <button class="btn-secondary" id="queryHistoryBtn" title="Query History">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                       <circle cx="8" cy="8" r="6"/>
@@ -259,7 +284,6 @@
                     </svg>
                     History
                   </button>
-                  <button class="btn-secondary" id="clearEditorBtn">Clear</button>
                   <div class="limit-dropdown-container">
                     <label for="limitSelect" class="limit-label">Limit:</label>
                     <select class="limit-dropdown" id="limitSelect">
@@ -743,6 +767,17 @@
     <div class="modal-footer">
       <button class="btn-secondary" onclick="clearQueryHistory()" style="margin-right: auto;">Clear History</button>
       <button class="btn-secondary" onclick="closeQueryHistoryModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Download Progress Popover -->
+<div class="download-popover hidden" id="downloadPopover">
+  <div class="download-popover-content">
+    <div class="spinner"></div>
+    <div class="download-message">
+      <div class="download-title" id="downloadTitle">Downloading...</div>
+      <div class="download-subtitle" id="downloadSubtitle">Please wait</div>
     </div>
   </div>
 </div>

@@ -259,6 +259,36 @@ ipcMain.handle('set-theme', async (event, theme) => {
 // Handle errors
 
 // File Operations
+ipcMain.handle('open-file', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [
+        { name: 'SQL Files', extensions: ['sql'] },
+        { name: 'Text Files', extensions: ['txt'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    const content = fs.readFileSync(result.filePaths[0], 'utf8');
+    return {
+      success: true,
+      content,
+      filePath: result.filePaths[0]
+    };
+  } catch (error) {
+    console.error('Error opening file:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+});
+
 ipcMain.handle('save-file', async (event, { content, defaultPath, filters }) => {
   try {
     const result = await dialog.showSaveDialog(mainWindow, {

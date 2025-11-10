@@ -403,7 +403,85 @@ function selectCellRange(startRow, startCol, endRow, endCol) {
 }
 
 // Setup Event Listeners
+function handleDatabaseDisconnect() {
+  // Hide backup button
+  const backupBtn = document.getElementById('backupDatabaseBtn');
+  if (backupBtn) {
+    backupBtn.classList.add('hidden');
+  }
+
+  // Reset connection state
+  currentConnectionId = null;
+  currentSchema = null;
+  
+  // Update UI
+  document.getElementById('currentConnection').textContent = 'No connection selected';
+  const titleBarDbName = document.getElementById('titleBarDbName');
+  titleBarDbName.textContent = 'Welcome to NeuroDB';
+  titleBarDbName.classList.remove('connected');
+  
+  // Clear database tree
+  if (dbTree) {
+    dbTree.innerHTML = '';
+  }
+  
+  // Show welcome screen if no connections
+  if (!connections || connections.length === 0) {
+    welcomeScreen.classList.remove('hidden');
+    databaseView.classList.add('hidden');
+  }
+  
+  renderConnections();
+}
+
 function setupEventListeners() {
+  // Hide backup button by default
+  const backupBtn = document.getElementById('backupDatabaseBtn');
+  if (backupBtn) {
+    backupBtn.classList.add('hidden');
+  }
+
+  // File Operations
+  document.getElementById('openSqlFileBtn').addEventListener('click', async () => {
+    try {
+      const result = await window.api.openFile();
+      if (result.success) {
+        queryEditor.value = result.content;
+        updateLineNumbers();
+        showNotification('File loaded successfully', 'success');
+      } else if (!result.canceled) {
+        showNotification('Failed to load file: ' + result.error, 'error');
+      }
+    } catch (error) {
+      showNotification('Error loading file: ' + error.message, 'error');
+    }
+  });
+
+  document.getElementById('saveSqlFileBtn').addEventListener('click', async () => {
+    try {
+      const content = queryEditor.value;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      
+      const result = await window.api.saveFile({
+        content: content,
+        defaultPath: `query_${timestamp}.sql`,
+        filters: [
+          { name: 'SQL Files', extensions: ['sql'] },
+          { name: 'Text Files', extensions: ['txt'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+
+      if (result.success) {
+        showNotification('File saved successfully', 'success');
+      } else if (!result.canceled) {
+        showNotification('Failed to save file: ' + result.error, 'error');
+      }
+    } catch (error) {
+      showNotification('Error saving file: ' + error.message, 'error');
+    }
+  });
+
   // Tab Navigation
   document.querySelectorAll('.header-tab').forEach(tab => {
     tab.addEventListener('click', (event) => {
@@ -418,6 +496,14 @@ function setupEventListeners() {
   document.getElementById('welcomeAddConnection').addEventListener('click', () => openConnectionModal());
   document.getElementById('closeConnectionModal').addEventListener('click', () => closeConnectionModal());
   document.getElementById('cancelConnectionBtn').addEventListener('click', () => closeConnectionModal());
+
+  // Backup Button
+  document.getElementById('backupDatabaseBtn').addEventListener('click', () => {
+    if (currentConnectionId) {
+      const dbName = connections.find(c => c.id === currentConnectionId)?.name || 'database';
+      downloadDatabaseBackup(currentConnectionId, dbName);
+    }
+  });
   document.getElementById('testConnectionBtn').addEventListener('click', testConnection);
   connectionForm.addEventListener('submit', saveConnection);
   
@@ -647,6 +733,22 @@ function setupEventListeners() {
   // Where Clause Builder
   executeWhereBtn.addEventListener('click', generateWhereQuery);
   closeWhereBuilder.addEventListener('click', hideWhereClauseBuilder);
+  
+  // Backup Database Button
+  document.getElementById('backupDatabaseBtn')?.addEventListener('click', () => {
+    if (currentConnectionId) {
+      // Find the database name
+      let databaseName = '';
+      for (const server of connections) {
+        const db = server.databases?.find(d => d.id === currentConnectionId);
+        if (db) {
+          databaseName = db.name;
+          break;
+        }
+      }
+      downloadDatabaseBackup(currentConnectionId, databaseName);
+    }
+  });
   
   // Handle Enter key in value input
   valueInput.addEventListener('keydown', (e) => {
@@ -889,13 +991,7 @@ async function deleteDatabase(databaseId) {
       showNotification('Database removed', 'success');
       
       if (databaseId === currentConnectionId) {
-        currentConnectionId = null;
-        currentSchema = null;
-        
-        // Reset title bar
-        const titleBarDbName = document.getElementById('titleBarDbName');
-        titleBarDbName.textContent = 'Welcome to NeuroDB';
-        titleBarDbName.classList.remove('connected');
+        handleDatabaseDisconnect();
         
         welcomeScreen.classList.remove('hidden');
         databaseView.classList.add('hidden');
@@ -1030,6 +1126,12 @@ async function connectToDatabase(connectionId) {
       // Update top bar
       document.getElementById('currentConnection').textContent = 
         `Connected to ${dbName}`;
+      
+      // Show backup button
+      const backupBtn = document.getElementById('backupDatabaseBtn');
+      if (backupBtn) {
+        backupBtn.classList.remove('hidden');
+      }
       
       // Update title bar
       const titleBarDbName = document.getElementById('titleBarDbName');
@@ -2629,12 +2731,22 @@ window.exportResults = exportResults;
 
 // Database and Table Backup/Download Functions
 async function downloadDatabaseBackup(databaseId, databaseName) {
+  const downloadPopover = document.getElementById('downloadPopover');
+  const downloadTitle = document.getElementById('downloadTitle');
+  const downloadSubtitle = document.getElementById('downloadSubtitle');
+  
   try {
-    showNotification('Generating database backup...', 'info');
+    // Show loading popover
+    downloadTitle.textContent = 'Downloading Database Backup';
+    downloadSubtitle.textContent = `Generating backup for ${databaseName}...`;
+    downloadPopover.classList.remove('hidden');
     
     const result = await window.api.generateDatabaseBackup(databaseId);
     
     if (result.success) {
+      downloadTitle.textContent = 'Saving Backup';
+      downloadSubtitle.textContent = 'Choose where to save...';
+      
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const defaultFilename = `${databaseName}_backup_${timestamp}.sql`;
       
@@ -2648,23 +2760,37 @@ async function downloadDatabaseBackup(databaseId, databaseName) {
         ]
       });
       
+      // Hide loading popover
+      downloadPopover.classList.add('hidden');
+      
       if (saveResult.success) {
         showNotification('Database backup saved successfully', 'success');
       } else if (!saveResult.canceled) {
         showNotification('Failed to save backup: ' + saveResult.error, 'error');
       }
     } else {
+      // Hide loading popover
+      downloadPopover.classList.add('hidden');
       showNotification('Failed to generate backup: ' + result.error, 'error');
     }
   } catch (error) {
+    // Hide loading popover
+    downloadPopover.classList.add('hidden');
     console.error('Error downloading database backup:', error);
     showNotification('Error downloading backup: ' + error.message, 'error');
   }
 }
 
 async function downloadTableData(schemaName, tableName) {
+  const downloadPopover = document.getElementById('downloadPopover');
+  const downloadTitle = document.getElementById('downloadTitle');
+  const downloadSubtitle = document.getElementById('downloadSubtitle');
+  
   try {
-    showNotification('Downloading table data...', 'info');
+    // Show loading popover
+    downloadTitle.textContent = 'Downloading Table Data';
+    downloadSubtitle.textContent = `Fetching data from ${tableName}...`;
+    downloadPopover.classList.remove('hidden');
     
     const fullTableName = `${schemaName}.${tableName}`;
     const query = `SELECT * FROM ${fullTableName}`;
@@ -2672,11 +2798,17 @@ async function downloadTableData(schemaName, tableName) {
     const result = await window.api.executeQuery(currentConnectionId, query);
     
     if (result.success && result.rows && result.rows.length > 0) {
+      downloadTitle.textContent = 'Converting to CSV';
+      downloadSubtitle.textContent = `Processing ${result.rowCount} rows...`;
+      
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const defaultFilename = `${tableName}_${timestamp}.csv`;
       
       // Convert to CSV
       const csvContent = convertToCSV(result.rows);
+      
+      downloadTitle.textContent = 'Saving File';
+      downloadSubtitle.textContent = 'Choose where to save...';
       
       // Use save dialog
       const saveResult = await window.api.saveFile({
@@ -2688,17 +2820,26 @@ async function downloadTableData(schemaName, tableName) {
         ]
       });
       
+      // Hide loading popover
+      downloadPopover.classList.add('hidden');
+      
       if (saveResult.success) {
         showNotification(`Table data saved: ${result.rowCount} rows`, 'success');
       } else if (!saveResult.canceled) {
         showNotification('Failed to save table data: ' + saveResult.error, 'error');
       }
     } else if (result.success && result.rowCount === 0) {
+      // Hide loading popover
+      downloadPopover.classList.add('hidden');
       showNotification('Table is empty, no data to download', 'error');
     } else {
+      // Hide loading popover
+      downloadPopover.classList.add('hidden');
       showNotification('Failed to download table data: ' + result.error, 'error');
     }
   } catch (error) {
+    // Hide loading popover
+    downloadPopover.classList.add('hidden');
     console.error('Error downloading table data:', error);
     showNotification('Error downloading table data: ' + error.message, 'error');
   }

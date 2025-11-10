@@ -49,5 +49,9 @@ contextBridge.exposeInMainWorld('api', {
   setApiKey: (apiKey) => ipcRenderer.invoke('set-api-key', apiKey),
 
   // File Operations
+  openFile: () => ipcRenderer.invoke('open-file'),
+  saveFile: (options) => ipcRenderer.invoke('save-file', options),
+
+  // File Operations
   saveFile: (options) => ipcRenderer.invoke('save-file', options)
 });

@@ -7,7 +7,7 @@ class AIService {
     const apiKey = configService ? configService.getApiKey() : (process.env.GOOGLE_API_KEY || 'AIzaSyDjbkIPkzH17KrYkYyoOWDuGVA0i24yaIk');
     
     this.model = new ChatGoogleGenerativeAI({
-      modelName: 'gemini-2.0-flash-exp',
+      modelName: 'gemini-2.0-flash',
       apiKey: apiKey,
       temperature: 0.3,
       maxOutputTokens: 2048,
