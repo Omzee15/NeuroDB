@@ -32,6 +32,9 @@ let currentLimit = 100; // Track current query limit
 let connectionTabs = []; // Array of active connection tabs
 let activeTabIndex = -1; // Index of currently active tab
 
+// AI Assistant instances per tab
+let aiInstances = new Map(); // Map of tab IDs to AI assistant instances
+
 // PSQL Terminal state
 let psqlCommandHistory = []; // Store PSQL command history
 let psqlHistoryIndex = -1; // Current position in command history
@@ -431,7 +434,10 @@ function handleDatabaseDisconnect() {
   currentConnectionId = null;
   currentSchema = null;
   
-  // Clear all connection tabs
+  // Clear all connection tabs and AI instances
+  connectionTabs.forEach(tab => {
+    destroyAIInstanceForTab(tab.id);
+  });
   connectionTabs = [];
   activeTabIndex = -1;
   
@@ -466,11 +472,119 @@ function createConnectionTab(connectionId, serverName, databaseName) {
     queryEditorContent: '',
     queryResults: null, // Store query results for this tab
     queryFields: null,  // Store query fields for this tab
-    isActive: false
+    isActive: false,
+    // AI Assistant specific data
+    aiChatHistory: [], // Separate chat history for this connection
+    aiContext: {       // Connection-specific AI context
+      schema: null,
+      connectionName: `${serverName} / ${databaseName}`,
+      connectionId: connectionId,
+      currentTable: null
+    }
   };
   
   connectionTabs.push(tab);
+  
+  // Create AI assistant instance for this tab
+  createAIInstanceForTab(tab);
+  
   return tab;
+}
+
+// AI Assistant Management for Tabs
+function createAIInstanceForTab(tab) {
+  // Store the AI instance context for this tab
+  aiInstances.set(tab.id, {
+    tabId: tab.id,
+    connectionId: tab.connectionId,
+    chatHistory: tab.aiChatHistory,
+    context: tab.aiContext,
+    isInitialized: false
+  });
+  
+  console.log(`Created AI instance for tab: ${tab.name} (${tab.id})`);
+}
+
+function getActiveAIInstance() {
+  if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+    const activeTab = connectionTabs[activeTabIndex];
+    return aiInstances.get(activeTab.id);
+  }
+  return null;
+}
+
+function updateAIInstanceSchema(tabId, schema) {
+  const aiInstance = aiInstances.get(tabId);
+  if (aiInstance) {
+    aiInstance.context.schema = schema;
+    // Update the corresponding tab's context as well
+    const tab = connectionTabs.find(t => t.id === tabId);
+    if (tab) {
+      tab.aiContext.schema = schema;
+    }
+  }
+}
+
+function destroyAIInstanceForTab(tabId) {
+  if (aiInstances.has(tabId)) {
+    const aiInstance = aiInstances.get(tabId);
+    console.log(`Destroying AI instance for tab: ${tabId}`);
+    
+    // Clear any pending operations or cleanup if needed
+    aiInstance.chatHistory = [];
+    aiInstance.context = null;
+    
+    // Remove from map
+    aiInstances.delete(tabId);
+  }
+}
+
+function switchAIChatToTab(tabId) {
+  const aiInstance = aiInstances.get(tabId);
+  if (!aiInstance) {
+    console.warn(`No AI instance found for tab: ${tabId}`);
+    return;
+  }
+  
+  // Clear current chat display
+  aiChatContainer.innerHTML = '';
+  
+  // Update AI prompt placeholder
+  if (aiPrompt) {
+    aiPrompt.placeholder = `🤖 Ask AI about ${aiInstance.context.connectionName}... (e.g., 'Show all users created this month')`;
+  }
+  if (aiChatInput) {
+    aiChatInput.placeholder = `Ask me anything about ${aiInstance.context.connectionName}...`;
+  }
+  
+  // Show welcome message if no chat history
+  if (aiInstance.chatHistory.length === 0) {
+    const welcomeMessage = document.createElement('div');
+    welcomeMessage.className = 'ai-welcome';
+    const schemaStatus = aiInstance.context.schema ? 'ready' : 'loading schema...';
+    welcomeMessage.innerHTML = `
+      👋 Hi! I'm your AI assistant for <strong>${aiInstance.context.connectionName}</strong>.<br>
+      I understand this database's schema and can help you with SQL queries, explanations, and more!<br>
+      <small>Status: ${schemaStatus}</small>
+    `;
+    aiChatContainer.appendChild(welcomeMessage);
+  } else {
+    // Restore chat history for this tab
+    aiInstance.chatHistory.forEach(msg => {
+      addAIMessage(msg.role, msg.content, false); // false = don't save to history again
+    });
+  }
+  
+  // Update global chat history reference to point to this tab's history
+  chatHistory = aiInstance.chatHistory;
+  
+  // Update connection indicator in AI panel header
+  const aiConnectionIndicator = document.getElementById('aiConnectionIndicator');
+  if (aiConnectionIndicator) {
+    aiConnectionIndicator.textContent = `Connected to: ${aiInstance.context.connectionName}`;
+  }
+  
+  console.log(`Switched AI chat to tab: ${aiInstance.context.connectionName} (${tabId})`);
 }
 
 function renderConnectionTabs() {
@@ -558,6 +672,9 @@ function switchToTab(tabIndex) {
     disableExportButtons();
   }
   
+  // Update AI chat for this tab
+  switchAIChatToTab(tab.id);
+  
   // Update UI
   renderConnectionTabs();
   
@@ -570,6 +687,9 @@ async function closeConnectionTab(tabIndex) {
   if (tabIndex < 0 || tabIndex >= connectionTabs.length) return;
   
   const tab = connectionTabs[tabIndex];
+  
+  // Destroy AI instance for this tab
+  destroyAIInstanceForTab(tab.id);
   
   // Disconnect from database
   try {
@@ -593,6 +713,28 @@ async function closeConnectionTab(tabIndex) {
       currentConnectionId = null;
       currentSchema = null;
       queryEditor.value = '';
+      
+      // Clear AI chat when no connections and reset placeholders
+      aiChatContainer.innerHTML = '';
+      const welcomeMessage = document.createElement('div');
+      welcomeMessage.className = 'ai-welcome';
+      welcomeMessage.innerHTML = '👋 Hi! I\'m your AI assistant. Connect to a database to get started!';
+      aiChatContainer.appendChild(welcomeMessage);
+      
+      // Reset AI input placeholders
+      if (aiPrompt) {
+        aiPrompt.placeholder = '🤖 Ask AI to generate SQL... (e.g., \'Show all users created this month\')';
+      }
+      if (aiChatInput) {
+        aiChatInput.placeholder = 'Ask me anything about your database...';
+      }
+      
+      // Update connection indicator
+      const aiConnectionIndicator = document.getElementById('aiConnectionIndicator');
+      if (aiConnectionIndicator) {
+        aiConnectionIndicator.textContent = 'No connection';
+      }
+      
       handleDatabaseDisconnect();
     }
   } else if (activeTabIndex > tabIndex) {
@@ -1347,6 +1489,13 @@ async function loadDatabaseSchema() {
     if (result.success) {
       currentSchema = result.schema;
       console.log('Current schema:', currentSchema);
+      
+      // Update AI instance schema for the current active tab
+      if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+        const activeTab = connectionTabs[activeTabIndex];
+        updateAIInstanceSchema(activeTab.id, result.schema);
+      }
+      
       renderDatabaseTree(result.schema);
     } else {
       showNotification('Failed to load schema: ' + result.error, 'error');
@@ -3072,7 +3221,9 @@ async function generateSQL() {
     return;
   }
   
-  if (!currentConnectionId || !currentSchema) {
+  // Get tab-specific AI instance
+  const activeAI = getActiveAIInstance();
+  if (!activeAI || !activeAI.context.schema) {
     showNotification('Please connect to a database first', 'error');
     return;
   }
@@ -3081,7 +3232,7 @@ async function generateSQL() {
   queryEditor.value = '-- Generating...';
   
   try {
-    const result = await window.api.generateSQL(prompt, currentSchema, currentConnectionId);
+    const result = await window.api.generateSQL(prompt, activeAI.context.schema, activeAI.connectionId);
     
     if (result.success) {
       queryEditor.value = result.query;
@@ -3105,7 +3256,9 @@ async function explainQuery() {
     return;
   }
   
-  if (!currentSchema) {
+  // Get tab-specific AI instance
+  const activeAI = getActiveAIInstance();
+  if (!activeAI || !activeAI.context.schema) {
     showNotification('Please connect to a database first', 'error');
     return;
   }
@@ -3115,7 +3268,7 @@ async function explainQuery() {
   addAIMessage('assistant', '🔍 Analyzing your query...');
   
   try {
-    const result = await window.api.explainQuery(query, currentSchema);
+    const result = await window.api.explainQuery(query, activeAI.context.schema);
     
     if (result.success) {
       // Remove the loading message and add the actual explanation
@@ -3201,30 +3354,21 @@ async function sendChatMessage() {
   
   if (!message) return;
   
+  // Get tab-specific AI instance
+  const activeAI = getActiveAIInstance();
+  if (!activeAI) {
+    showNotification('Please connect to a database first', 'error');
+    return;
+  }
+  
   addAIMessage('user', message);
   aiChatInput.value = '';
   
-  const context = {
-    schema: currentSchema,
-    connectionName: connections.find(c => c.id === currentConnectionId)?.name,
-    currentTable: null
-  };
-  
   try {
-    const result = await window.api.chatWithAI(message, context, chatHistory);
+    const result = await window.api.chatWithAI(message, activeAI.context, activeAI.chatHistory);
     
     if (result.success) {
       addAIMessage('assistant', result.response);
-      
-      chatHistory.push(
-        { role: 'user', content: message },
-        { role: 'assistant', content: result.response }
-      );
-      
-      // Keep only last 6 conversations (12 messages)
-      if (chatHistory.length > 12) {
-        chatHistory = chatHistory.slice(-12);
-      }
     } else {
       addAIMessage('assistant', 'Sorry, I encountered an error: ' + result.error);
     }
@@ -3233,7 +3377,7 @@ async function sendChatMessage() {
   }
 }
 
-function addAIMessage(role, content) {
+function addAIMessage(role, content, saveToHistory = true) {
   const messageEl = document.createElement('div');
   messageEl.className = `ai-message ${role}`;
   
@@ -3243,6 +3387,28 @@ function addAIMessage(role, content) {
   
   aiChatContainer.appendChild(messageEl);
   aiChatContainer.scrollTop = aiChatContainer.scrollHeight;
+  
+  // Save to current tab's chat history if requested
+  if (saveToHistory) {
+    const activeAI = getActiveAIInstance();
+    if (activeAI) {
+      activeAI.chatHistory.push({ role, content });
+      
+      // Also update the tab's chat history
+      const activeTab = connectionTabs.find(t => t.id === activeAI.tabId);
+      if (activeTab) {
+        activeTab.aiChatHistory.push({ role, content });
+      }
+      
+      // Keep only last 12 messages (6 conversations)
+      if (activeAI.chatHistory.length > 12) {
+        activeAI.chatHistory = activeAI.chatHistory.slice(-12);
+        if (activeTab) {
+          activeTab.aiChatHistory = activeTab.aiChatHistory.slice(-12);
+        }
+      }
+    }
+  }
 }
 
 // PSQL Terminal

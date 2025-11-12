@@ -1845,6 +1845,13 @@ body {
 .ai-panel-header h3 {
   font-size: 14px;
   font-weight: 600;
+  margin: 0;
+}
+
+.ai-connection-indicator {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.8;
 }
 
 .ai-chat-container {
