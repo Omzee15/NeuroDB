@@ -831,6 +831,94 @@ class DatabaseService {
       };
     }
   }
+
+  async createTable(connectionId, tableData) {
+    try {
+      const pool = this.pools.get(connectionId);
+      if (!pool) {
+        return { success: false, error: 'Not connected to database' };
+      }
+
+      const { tableName, columns, indexes } = tableData;
+
+      // Start building the CREATE TABLE statement
+      let createTableSQL = `CREATE TABLE ${tableName} (\n`;
+      
+      // Add columns
+      const columnDefs = [];
+      let primaryKeyColumns = [];
+      
+      for (const column of columns) {
+        let columnDef = `  ${column.name} ${column.dataType}`;
+        
+        // Add NOT NULL if it's a primary key
+        if (column.isPrimaryKey) {
+          columnDef += ' NOT NULL';
+          primaryKeyColumns.push(column.name);
+        }
+        
+        columnDefs.push(columnDef);
+      }
+      
+      createTableSQL += columnDefs.join(',\n');
+      
+      // Add primary key constraint if any primary key columns exist
+      if (primaryKeyColumns.length > 0) {
+        createTableSQL += `,\n  PRIMARY KEY (${primaryKeyColumns.join(', ')})`;
+      }
+      
+      createTableSQL += '\n);';
+      
+      // Execute the CREATE TABLE statement
+      await pool.query(createTableSQL);
+      
+      // Create indexes for columns that need them
+      for (const indexColumn of indexes) {
+        const indexName = `idx_${tableName}_${indexColumn}`;
+        const createIndexSQL = `CREATE INDEX ${indexName} ON ${tableName} (${indexColumn});`;
+        await pool.query(createIndexSQL);
+      }
+      
+      return {
+        success: true,
+        message: `Table "${tableName}" created successfully`
+      };
+      
+    } catch (error) {
+      console.error('Error creating table:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async executeCreateTableSQL(connectionId, sql) {
+    try {
+      const pool = this.getConnection(connectionId);
+      if (!pool) {
+        return {
+          success: false,
+          error: 'Database connection not found'
+        };
+      }
+
+      // Execute the SQL query
+      await pool.query(sql);
+      
+      return {
+        success: true,
+        message: 'Table created successfully'
+      };
+      
+    } catch (error) {
+      console.error('Error executing CREATE TABLE SQL:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 module.exports = DatabaseService;

@@ -187,6 +187,26 @@ ipcMain.handle('generate-database-backup', async (event, databaseId) => {
   return dbService.generateDatabaseBackup(databaseId);
 });
 
+ipcMain.handle('create-table', async (event, connectionId, tableData) => {
+  try {
+    const result = await dbService.createTable(connectionId, tableData);
+    return result;
+  } catch (error) {
+    console.error('Error creating table:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('execute-create-table-sql', async (event, connectionId, sql) => {
+  try {
+    const result = await dbService.executeCreateTableSQL(connectionId, sql);
+    return result;
+  } catch (error) {
+    console.error('Error executing CREATE TABLE SQL:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('export-to-excel', async (event, { data, filename }) => {
   const XLSX = require('xlsx');
   const { dialog } = require('electron');

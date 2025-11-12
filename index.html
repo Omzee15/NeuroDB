@@ -153,6 +153,11 @@
                 </button>
                 <h3>Database Browser</h3>
               </div>
+              <button class="btn-icon" id="createTableBtn" title="Create New Table">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
+                </svg>
+              </button>
               <button class="btn-icon" id="refreshSchemaBtn" title="Refresh Schema">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M2 8a6 6 0 0112 0M14 8a6 6 0 01-12 0"/>
@@ -776,6 +781,92 @@
       <button class="btn-secondary" onclick="clearQueryHistory()" style="margin-right: auto;">Clear History</button>
       <button class="btn-secondary" onclick="closeQueryHistoryModal()">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- Modal: Create Table -->
+<div class="modal hidden" id="createTableModal">
+  <div class="modal-content" style="max-width: 700px; max-height: 700px;">
+    <div class="modal-header">
+      <h2>Create New Table</h2>
+      <button class="btn-icon" id="closeCreateTableModal">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="table-creation-tabs">
+      <button type="button" class="tab-button active" data-tab="visual">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 3h12v10H2V3zm1 1v8h10V4H3zm2 2h6v1H5V6zm0 2h4v1H5V8z"/>
+        </svg>
+        Visual Editor
+      </button>
+      <button type="button" class="tab-button" data-tab="sql">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 6h12v4H2V6zm1 1v2h10V7H3zm-1 5h12v2H2v-2zm1 1v0h10v0H3z"/>
+        </svg>
+        SQL Query
+      </button>
+    </div>
+
+    <form id="createTableForm" class="create-table-form">
+      <!-- Visual Editor Tab -->
+      <div class="tab-content active" id="visualTab">
+        <div class="form-group">
+          <label for="tableName">Table Name</label>
+          <input type="text" id="tableName" required placeholder="Enter table name" class="table-name-input">
+        </div>
+
+        <div class="form-group">
+          <label>Columns</label>
+          <div class="columns-container">
+            <div class="columns-scroll" id="columnsContainer">
+              <!-- Column rows will be added here -->
+            </div>
+          </div>
+          <button type="button" class="btn-secondary btn-add-column" id="addColumnBtn">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
+            </svg>
+            Add Column
+          </button>
+        </div>
+      </div>
+
+      <!-- SQL Query Tab -->
+      <div class="tab-content" id="sqlTab">
+        <div class="form-group">
+          <label for="sqlQuery">SQL Query</label>
+          <div class="sql-editor-container">
+            <textarea 
+              id="sqlQuery" 
+              placeholder="CREATE TABLE your_table_name (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(255) UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);"
+              class="sql-query-textarea"
+              rows="12"
+            ></textarea>
+          </div>
+          <div class="sql-editor-help">
+            <small>Write your CREATE TABLE statement. The query will be executed directly.</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <div></div>
+        <div class="form-actions-right">
+          <button type="button" class="btn-secondary" id="cancelCreateTableBtn">Cancel</button>
+          <button type="submit" class="btn-primary" id="createTableBtn">Create Table</button>
+        </div>
+      </div>
+    </form>
   </div>
 </div>
 

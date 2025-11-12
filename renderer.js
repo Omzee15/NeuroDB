@@ -1008,6 +1008,18 @@ function setupEventListeners() {
   // Refresh Schema
   document.getElementById('refreshSchemaBtn')?.addEventListener('click', loadDatabaseSchema);
   
+  // Create Table
+  document.getElementById('createTableBtn')?.addEventListener('click', openCreateTableModal);
+  document.getElementById('closeCreateTableModal')?.addEventListener('click', closeCreateTableModal);
+  document.getElementById('cancelCreateTableBtn')?.addEventListener('click', closeCreateTableModal);
+  document.getElementById('createTableForm')?.addEventListener('submit', handleCreateTable);
+  document.getElementById('addColumnBtn')?.addEventListener('click', addColumnRow);
+  
+  // Table Creation Tabs
+  document.querySelectorAll('.tab-button').forEach(button => {
+    button.addEventListener('click', switchCreateTableTab);
+  });
+  
   // Database Search
   document.getElementById('dbSearchInput')?.addEventListener('input', (e) => {
     filterDatabaseTree(e.target.value);
@@ -5957,3 +5969,420 @@ window.clearQueryHistory = clearQueryHistory;
 // Initialize on load
 loadSnippets();
 loadVariables();
+
+// Table Creation Functions
+let columnCounter = 0;
+
+// PostgreSQL data types for dropdown
+const postgresDataTypes = [
+  // Numeric types
+  'INTEGER', 'BIGINT', 'SMALLINT', 'DECIMAL', 'NUMERIC', 'REAL', 'DOUBLE PRECISION',
+  'SERIAL', 'BIGSERIAL', 'SMALLSERIAL',
+  // Character types
+  'VARCHAR', 'CHAR', 'TEXT', 'CHARACTER VARYING', 'CHARACTER',
+  // Binary types
+  'BYTEA',
+  // Date/Time types
+  'TIMESTAMP', 'TIMESTAMPTZ', 'DATE', 'TIME', 'TIMETZ', 'INTERVAL',
+  // Boolean type
+  'BOOLEAN',
+  // Geometric types
+  'POINT', 'LINE', 'LSEG', 'BOX', 'PATH', 'POLYGON', 'CIRCLE',
+  // Network types
+  'INET', 'CIDR', 'MACADDR', 'MACADDR8',
+  // JSON types
+  'JSON', 'JSONB',
+  // UUID type
+  'UUID',
+  // Array types
+  'INTEGER[]', 'TEXT[]', 'VARCHAR[]', 'NUMERIC[]',
+  // Other types
+  'MONEY', 'XML'
+];
+
+function openCreateTableModal() {
+  if (!currentConnectionId) {
+    showNotification('Please connect to a database first', 'warning');
+    return;
+  }
+  
+  const modal = document.getElementById('createTableModal');
+  const columnsContainer = document.getElementById('columnsContainer');
+  const tableNameInput = document.getElementById('tableName');
+  const sqlQueryTextarea = document.getElementById('sqlQuery');
+  
+  // Reset form
+  tableNameInput.value = '';
+  columnsContainer.innerHTML = '';
+  sqlQueryTextarea.value = '';
+  columnCounter = 0;
+  
+  // Reset to visual tab
+  document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+  
+  document.querySelector('.tab-button[data-tab="visual"]').classList.add('active');
+  document.getElementById('visualTab').classList.add('active');
+  
+  // Add first column by default
+  addColumnRow();
+  
+  modal.classList.remove('hidden');
+  tableNameInput.focus();
+}
+
+function closeCreateTableModal() {
+  const modal = document.getElementById('createTableModal');
+  modal.classList.add('hidden');
+}
+
+function switchCreateTableTab(event) {
+  const selectedTab = event.currentTarget.dataset.tab;
+  
+  // Update tab buttons
+  document.querySelectorAll('.tab-button').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  event.currentTarget.classList.add('active');
+  
+  // Update tab content
+  document.querySelectorAll('.tab-content').forEach(content => {
+    content.classList.remove('active');
+  });
+  
+  if (selectedTab === 'visual') {
+    document.getElementById('visualTab').classList.add('active');
+  } else if (selectedTab === 'sql') {
+    document.getElementById('sqlTab').classList.add('active');
+  }
+}
+
+function addColumnRow() {
+  const columnsContainer = document.getElementById('columnsContainer');
+  const columnId = ++columnCounter;
+  
+  const columnRow = document.createElement('div');
+  columnRow.className = 'column-row';
+  columnRow.dataset.columnId = columnId;
+  
+  columnRow.innerHTML = `
+    <input 
+      type="text" 
+      placeholder="Column name" 
+      class="column-input column-name" 
+      name="columnName_${columnId}"
+      required
+    />
+    <div class="datatype-dropdown">
+      <div class="datatype-search">
+        <input 
+          type="text" 
+          placeholder="Select data type" 
+          class="datatype-search-input" 
+          name="dataType_${columnId}"
+          readonly
+          required
+        />
+        <div class="datatype-dropdown-list">
+          ${postgresDataTypes.map(type => `
+            <div class="datatype-option" data-value="${type}">${type}</div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="column-controls">
+      <label class="pk-checkbox">
+        <input type="radio" name="primaryKey" value="${columnId}" />
+        <span>PK</span>
+      </label>
+      <button type="button" class="index-toggle" data-column="${columnId}">
+        IDX
+      </button>
+      <button type="button" class="remove-column-btn" onclick="removeColumnRow(${columnId})">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+  `;
+  
+  columnsContainer.appendChild(columnRow);
+  
+  // Set up datatype dropdown functionality
+  setupDatatypeDropdown(columnRow);
+  
+  // Set up index toggle
+  setupIndexToggle(columnRow);
+}
+
+function removeColumnRow(columnId) {
+  const columnRow = document.querySelector(`[data-column-id="${columnId}"]`);
+  if (columnRow) {
+    // Check if this is the last column
+    const allRows = document.querySelectorAll('.column-row');
+    if (allRows.length === 1) {
+      showNotification('Table must have at least one column', 'warning');
+      return;
+    }
+    columnRow.remove();
+  }
+}
+
+function setupDatatypeDropdown(columnRow) {
+  const searchInput = columnRow.querySelector('.datatype-search-input');
+  const dropdownList = columnRow.querySelector('.datatype-dropdown-list');
+  const options = dropdownList.querySelectorAll('.datatype-option');
+  
+  // Show dropdown when input is clicked
+  searchInput.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Close other dropdowns
+    document.querySelectorAll('.datatype-dropdown-list.show').forEach(list => {
+      if (list !== dropdownList) {
+        list.classList.remove('show');
+      }
+    });
+    
+    if (!dropdownList.classList.contains('show')) {
+      // Position the dropdown relative to the input
+      const rect = searchInput.getBoundingClientRect();
+      dropdownList.style.left = rect.left + 'px';
+      dropdownList.style.top = (rect.bottom + 2) + 'px';
+      dropdownList.style.width = rect.width + 'px';
+    }
+    
+    dropdownList.classList.toggle('show');
+  });
+  
+  // Search functionality
+  searchInput.addEventListener('input', () => {
+    const searchTerm = searchInput.value.toLowerCase();
+    options.forEach(option => {
+      const optionText = option.textContent.toLowerCase();
+      const matches = optionText.includes(searchTerm);
+      option.style.display = matches ? 'block' : 'none';
+    });
+    if (!dropdownList.classList.contains('show')) {
+      // Position the dropdown relative to the input
+      const rect = searchInput.getBoundingClientRect();
+      dropdownList.style.left = rect.left + 'px';
+      dropdownList.style.top = (rect.bottom + 2) + 'px';
+      dropdownList.style.width = rect.width + 'px';
+      dropdownList.classList.add('show');
+    }
+  });
+  
+  // Handle option selection
+  options.forEach(option => {
+    option.addEventListener('click', () => {
+      const selectedValue = option.dataset.value;
+      searchInput.value = selectedValue;
+      dropdownList.classList.remove('show');
+      
+      // Remove readonly to trigger validation
+      searchInput.removeAttribute('readonly');
+      setTimeout(() => {
+        searchInput.setAttribute('readonly', true);
+      }, 10);
+    });
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!columnRow.contains(e.target)) {
+      dropdownList.classList.remove('show');
+    }
+  });
+  
+  // Reposition dropdown on window events
+  const repositionDropdown = () => {
+    if (dropdownList.classList.contains('show')) {
+      const rect = searchInput.getBoundingClientRect();
+      dropdownList.style.left = rect.left + 'px';
+      dropdownList.style.top = (rect.bottom + 2) + 'px';
+      dropdownList.style.width = rect.width + 'px';
+    }
+  };
+  
+  window.addEventListener('scroll', repositionDropdown);
+  window.addEventListener('resize', repositionDropdown);
+}
+
+function setupIndexToggle(columnRow) {
+  const indexToggle = columnRow.querySelector('.index-toggle');
+  
+  indexToggle.addEventListener('click', () => {
+    indexToggle.classList.toggle('active');
+  });
+}
+
+async function handleCreateTable(e) {
+  e.preventDefault();
+  
+  // Determine which tab is active
+  const activeTab = document.querySelector('.tab-content.active').id;
+  
+  if (activeTab === 'visualTab') {
+    await handleVisualTableCreation();
+  } else if (activeTab === 'sqlTab') {
+    await handleSQLTableCreation();
+  }
+}
+
+async function handleVisualTableCreation() {
+  const tableName = document.getElementById('tableName').value.trim();
+  if (!tableName) {
+    showNotification('Table name is required', 'error');
+    return;
+  }
+  
+  // Validate table name (basic validation)
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+    showNotification('Table name must start with a letter or underscore and contain only letters, numbers, and underscores', 'error');
+    return;
+  }
+  
+  const columnRows = document.querySelectorAll('.column-row');
+  if (columnRows.length === 0) {
+    showNotification('Table must have at least one column', 'error');
+    return;
+  }
+  
+  const columns = [];
+  const indexes = [];
+  let primaryKeyColumn = null;
+  
+  // Get primary key selection
+  const primaryKeyRadio = document.querySelector('input[name="primaryKey"]:checked');
+  if (primaryKeyRadio) {
+    primaryKeyColumn = primaryKeyRadio.value;
+  }
+  
+  // Collect column data
+  for (const columnRow of columnRows) {
+    const columnId = columnRow.dataset.columnId;
+    const nameInput = columnRow.querySelector('.column-name');
+    const datatypeInput = columnRow.querySelector('.datatype-search-input');
+    const indexToggle = columnRow.querySelector('.index-toggle');
+    
+    const columnName = nameInput.value.trim();
+    const dataType = datatypeInput.value.trim();
+    
+    if (!columnName) {
+      showNotification('All columns must have a name', 'error');
+      return;
+    }
+    
+    if (!dataType) {
+      showNotification('All columns must have a data type', 'error');
+      return;
+    }
+    
+    // Validate column name
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(columnName)) {
+      showNotification(`Column name "${columnName}" is invalid. Must start with a letter or underscore and contain only letters, numbers, and underscores`, 'error');
+      return;
+    }
+    
+    const column = {
+      name: columnName,
+      dataType: dataType,
+      isPrimaryKey: primaryKeyColumn === columnId,
+      hasIndex: indexToggle.classList.contains('active')
+    };
+    
+    columns.push(column);
+    
+    // Add index if requested (and not primary key, since PK automatically creates index)
+    if (column.hasIndex && !column.isPrimaryKey) {
+      indexes.push(columnName);
+    }
+  }
+  
+  // Check for duplicate column names
+  const columnNames = columns.map(col => col.name.toLowerCase());
+  const duplicates = columnNames.filter((name, index) => columnNames.indexOf(name) !== index);
+  if (duplicates.length > 0) {
+    showNotification(`Duplicate column names found: ${duplicates.join(', ')}`, 'error');
+    return;
+  }
+  
+  try {
+    const result = await window.api.createTable(currentConnectionId, {
+      tableName,
+      columns,
+      indexes
+    });
+    
+    if (result.success) {
+      showNotification(`Table "${tableName}" created successfully`, 'success');
+      closeCreateTableModal();
+      
+      // Refresh schema
+      await loadDatabaseSchema();
+    } else {
+      showNotification(`Failed to create table: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    console.error('Error creating table:', error);
+    showNotification(`Error creating table: ${error.message}`, 'error');
+  }
+}
+
+async function handleSQLTableCreation() {
+  const sqlQuery = document.getElementById('sqlQuery').value.trim();
+  
+  if (!sqlQuery) {
+    showNotification('SQL query is required', 'error');
+    return;
+  }
+  
+  // Basic validation to ensure it's a CREATE TABLE statement
+  if (!validateCreateTableSQL(sqlQuery)) {
+    showNotification('Please provide a valid CREATE TABLE statement', 'error');
+    return;
+  }
+  
+  try {
+    const result = await window.api.executeCreateTableSQL(currentConnectionId, sqlQuery);
+    
+    if (result.success) {
+      showNotification('Table created successfully', 'success');
+      closeCreateTableModal();
+      
+      // Refresh schema
+      await loadDatabaseSchema();
+    } else {
+      showNotification(`Failed to create table: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    console.error('Error executing SQL:', error);
+    showNotification(`Error executing SQL: ${error.message}`, 'error');
+  }
+}
+
+function validateCreateTableSQL(sql) {
+  // Remove comments and normalize whitespace
+  const normalizedSQL = sql
+    .replace(/--[^\n\r]*/g, '') // Remove single line comments
+    .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim()
+    .toUpperCase();
+  
+  // Check if it starts with CREATE TABLE
+  if (!normalizedSQL.startsWith('CREATE TABLE')) {
+    return false;
+  }
+  
+  // Basic structure check: should contain parentheses for column definitions
+  const hasParentheses = normalizedSQL.includes('(') && normalizedSQL.includes(')');
+  if (!hasParentheses) {
+    return false;
+  }
+  
+  return true;
+}
+
+// Make functions global so they can be called from HTML onclick handlers
+window.removeColumnRow = removeColumnRow;
