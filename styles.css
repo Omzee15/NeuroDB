@@ -217,6 +217,18 @@ body {
   font-weight: 600;
 }
 
+
+
+.connection-tab-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  opacity: 1;
+}
+
+.connection-tab-close svg {
+  width: 10px;
+  height: 10px;
+}
+
 .title-bar-right {
   display: flex;
   justify-content: flex-end;
@@ -511,9 +523,89 @@ body {
   padding: 0 20px;
 }
 
-.connection-info {
+.connection-tabs-section {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.connection-tabs-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.connection-tabs-container::-webkit-scrollbar {
+  display: none;
+}
+
+.connection-tab {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 200px;
+}
+
+.connection-tab:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.connection-tab.active {
+  background: var(--accent-primary);
+  color: var(--accent-text);
+  border-color: var(--accent-primary);
+}
+
+.connection-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.connection-tab-close {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.connection-tab-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.connection-tab.active .connection-tab-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.no-connections {
   font-size: 14px;
   color: var(--text-secondary);
+  padding: 8px 12px;
 }
 
 .top-bar-actions {
@@ -1146,8 +1238,9 @@ body {
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
   min-height: 200px;
-  height: 300px; /* Default height, will be overridden by JavaScript */
+  flex: 1; /* Take remaining space */
   overflow: hidden;
+  max-height: 100%; /* Ensure proper height constraints */
 }
 
 .results-header {
@@ -1330,6 +1423,10 @@ body {
   flex: 1;
   overflow: auto;
   padding: 15px;
+  height: 100%;
+  box-sizing: border-box; /* Include padding in height calculation */
+  min-height: 0; /* Ensure flexbox allows shrinking */
+  max-height: 100%; /* Prevent overflow from parent */
 }
 
 .no-results {
@@ -1342,6 +1439,8 @@ body {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed; /* Enable fixed layout for better column control */
+  display: table; /* Ensure proper table display */
 }
 
 .results-table th {
@@ -1399,8 +1498,12 @@ body {
 /* Column Resizing */
 .results-table th {
   position: relative;
-  min-width: 80px;
+  min-width: 120px; /* Increased min width for better readability */
+  width: auto; /* Let columns size based on content */
   user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .results-table th:not(:last-child) {
@@ -1440,6 +1543,10 @@ body {
 .results-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 0; /* Enable ellipsis in fixed table layout */
 }
 
 .results-table td:first-child {
@@ -1475,6 +1582,18 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* Ensure table body can handle large datasets with proper scrolling */
+.results-table tbody {
+  display: table-row-group;
+}
+
+/* Fallback for very large tables - add virtual scrolling container */
+.results-table-container.large-dataset {
+  max-height: 70vh; /* Limit to viewport height for better performance */
+  overflow-y: auto;
+  overflow-x: auto;
 }
 
 .results-table td.editing {

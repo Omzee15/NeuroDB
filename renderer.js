@@ -28,51 +28,68 @@ let currentQueryId = null; // Track current query for cancellation
 let isQueryExecuting = false; // Track query execution state
 let currentLimit = 100; // Track current query limit
 
+// Connection tabs state
+let connectionTabs = []; // Array of active connection tabs
+let activeTabIndex = -1; // Index of currently active tab
+
 // PSQL Terminal state
 let psqlCommandHistory = []; // Store PSQL command history
 let psqlHistoryIndex = -1; // Current position in command history
 let psqlCurrentCommand = ''; // Store current command when navigating history
 
-// DOM Elements
-const welcomeScreen = document.getElementById('welcomeScreen');
-const databaseView = document.getElementById('databaseView');
-const connectionsList = document.getElementById('connectionsList');
-const connectionModal = document.getElementById('connectionModal');
-const connectionForm = document.getElementById('connectionForm');
-const queryEditor = document.getElementById('queryEditor');
-const resultsTableContainer = document.getElementById('resultsTableContainer');
-const resultsInfo = document.getElementById('resultsInfo');
-const aiPrompt = document.getElementById('aiPrompt');
-const aiPanel = document.getElementById('aiPanel');
-const aiChatContainer = document.getElementById('aiChatContainer');
-const aiChatInput = document.getElementById('aiChatInput');
-const dbTree = document.getElementById('dbTree');
-const psqlOutput = document.getElementById('psqlOutput');
-const psqlInput = document.getElementById('psqlInput');
+// DOM Elements - will be initialized after DOM loads
+let welcomeScreen, databaseView, connectionsList, connectionModal, connectionForm;
+let queryEditor, resultsTableContainer, resultsInfo;
+let aiPrompt, aiPanel, aiChatContainer, aiChatInput;
+let dbTree, psqlOutput, psqlInput;
+let whereClauseBuilder, selectedTableName, columnSelect, operatorSelect, valueInput;
+let executeWhereBtn, closeWhereBuilder;
+let executeQueryBtn, executeSelectedBtn, stopQueryBtn, limitSelect;
 
-// Where Clause Builder Elements
-const whereClauseBuilder = document.getElementById('whereClauseBuilder');
-const selectedTableName = document.getElementById('selectedTableName');
-const columnSelect = document.getElementById('columnSelect');
-const operatorSelect = document.getElementById('operatorSelect');
-const valueInput = document.getElementById('valueInput');
-const executeWhereBtn = document.getElementById('executeWhereBtn');
-const closeWhereBuilder = document.getElementById('closeWhereBuilder');
-
-// Query execution control elements
-const executeQueryBtn = document.getElementById('executeQueryBtn');
-const executeSelectedBtn = document.getElementById('executeSelectedBtn');
-const stopQueryBtn = document.getElementById('stopQueryBtn');
-const limitSelect = document.getElementById('limitSelect');
+// Initialize all DOM element references
+function initializeDOMElements() {
+  welcomeScreen = document.getElementById('welcomeScreen');
+  databaseView = document.getElementById('databaseView');
+  connectionsList = document.getElementById('connectionsList');
+  connectionModal = document.getElementById('connectionModal');
+  connectionForm = document.getElementById('connectionForm');
+  queryEditor = document.getElementById('queryEditor');
+  resultsTableContainer = document.getElementById('resultsTableContainer');
+  resultsInfo = document.getElementById('resultsInfo');
+  aiPrompt = document.getElementById('aiPrompt');
+  aiPanel = document.getElementById('aiPanel');
+  aiChatContainer = document.getElementById('aiChatContainer');
+  aiChatInput = document.getElementById('aiChatInput');
+  dbTree = document.getElementById('dbTree');
+  psqlOutput = document.getElementById('psqlOutput');
+  psqlInput = document.getElementById('psqlInput');
+  whereClauseBuilder = document.getElementById('whereClauseBuilder');
+  selectedTableName = document.getElementById('selectedTableName');
+  columnSelect = document.getElementById('columnSelect');
+  operatorSelect = document.getElementById('operatorSelect');
+  valueInput = document.getElementById('valueInput');
+  executeWhereBtn = document.getElementById('executeWhereBtn');
+  closeWhereBuilder = document.getElementById('closeWhereBuilder');
+  executeQueryBtn = document.getElementById('executeQueryBtn');
+  executeSelectedBtn = document.getElementById('executeSelectedBtn');
+  stopQueryBtn = document.getElementById('stopQueryBtn');
+  limitSelect = document.getElementById('limitSelect');
+}
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
   try {
+    // Initialize DOM element references
+    initializeDOMElements();
+    
     await loadConnections();
     await loadTheme();
     setupEventListeners();
     applyTheme(currentTheme);
     updateLineNumbers();
+    
+    // Initialize connection tabs
+    renderConnectionTabs();
     
     // Load saved snippets and variables
     loadSnippets();
@@ -414,16 +431,21 @@ function handleDatabaseDisconnect() {
   currentConnectionId = null;
   currentSchema = null;
   
+  // Clear all connection tabs
+  connectionTabs = [];
+  activeTabIndex = -1;
+  
   // Update UI
   document.getElementById('currentConnection').textContent = 'No connection selected';
-  const titleBarDbName = document.getElementById('titleBarDbName');
-  titleBarDbName.textContent = 'Welcome to NeuroDB';
-  titleBarDbName.classList.remove('connected');
+  renderConnectionTabs(); // This will show the welcome message
   
   // Clear database tree
   if (dbTree) {
     dbTree.innerHTML = '';
   }
+  
+  // Clear query editor
+  queryEditor.value = '';
   
   // Show welcome screen if no connections
   if (!connections || connections.length === 0) {
@@ -432,6 +454,153 @@ function handleDatabaseDisconnect() {
   }
   
   renderConnections();
+}
+
+// Connection Tabs Management
+function createConnectionTab(connectionId, serverName, databaseName) {
+  const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const tab = {
+    id: tabId,
+    connectionId: connectionId,
+    name: `${serverName} / ${databaseName}`,
+    queryEditorContent: '',
+    queryResults: null, // Store query results for this tab
+    queryFields: null,  // Store query fields for this tab
+    isActive: false
+  };
+  
+  connectionTabs.push(tab);
+  return tab;
+}
+
+function renderConnectionTabs() {
+  const connectionTabsContainer = document.getElementById('connectionTabsContainer');
+  const noConnectionsMessage = document.getElementById('noConnectionsMessage');
+  
+  if (connectionTabs.length === 0) {
+    // Show no connections message when no tabs
+    noConnectionsMessage.style.display = 'block';
+    
+    // Clear any existing tabs
+    const existingTabs = connectionTabsContainer.querySelectorAll('.connection-tab');
+    existingTabs.forEach(tab => tab.remove());
+    return;
+  }
+  
+  // Hide the no connections message when tabs are present
+  noConnectionsMessage.style.display = 'none';
+  
+  // Clear existing tabs
+  const existingTabs = connectionTabsContainer.querySelectorAll('.connection-tab');
+  existingTabs.forEach(tab => tab.remove());
+  
+  // Create tab elements
+  connectionTabs.forEach((tab, index) => {
+    const tabElement = document.createElement('div');
+    tabElement.className = `connection-tab ${tab.isActive ? 'active' : ''}`;
+    tabElement.dataset.tabId = tab.id;
+    
+    tabElement.innerHTML = `
+      <span class="connection-tab-name" title="${tab.name}">${tab.name}</span>
+      <button class="connection-tab-close" title="Close connection">
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 6.293l2.146-2.147a.5.5 0 11.708.708L8.707 7l2.147 2.146a.5.5 0 01-.708.708L8 7.707l-2.146 2.147a.5.5 0 01-.708-.708L7.293 8 5.146 5.854a.5.5 0 11.708-.708L8 6.293z"/>
+        </svg>
+      </button>
+    `;
+    
+    // Add click event to switch tabs
+    tabElement.addEventListener('click', (e) => {
+      if (!e.target.closest('.connection-tab-close')) {
+        switchToTab(index);
+      }
+    });
+    
+    // Add close event
+    const closeBtn = tabElement.querySelector('.connection-tab-close');
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeConnectionTab(index);
+    });
+    
+    connectionTabsContainer.appendChild(tabElement);
+  });
+}
+
+function switchToTab(tabIndex) {
+  if (tabIndex < 0 || tabIndex >= connectionTabs.length) return;
+  
+  // Save current query editor content if switching from another tab
+  if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+    connectionTabs[activeTabIndex].queryEditorContent = queryEditor.value;
+    connectionTabs[activeTabIndex].isActive = false;
+  }
+  
+  // Switch to new tab
+  activeTabIndex = tabIndex;
+  const tab = connectionTabs[tabIndex];
+  tab.isActive = true;
+  
+  // Update connection state
+  currentConnectionId = tab.connectionId;
+  
+  // Restore query editor content
+  queryEditor.value = tab.queryEditorContent || '';
+  
+  // Restore query results if they exist for this tab
+  if (tab.queryResults && tab.queryFields) {
+    renderResultsTable(tab.queryResults, tab.queryFields);
+    enableExportButtons();
+    updateResultsInfo(tab.queryResults.length, tab.queryResults.length);
+  } else {
+    // Clear results if no previous results for this tab
+    resultsTableContainer.innerHTML = '<div class="no-results">Execute a query to see results</div>';
+    disableExportButtons();
+  }
+  
+  // Update UI
+  renderConnectionTabs();
+  
+  // Reload database schema for this connection
+  loadDatabaseSchema();
+  loadTablesAndViews();
+}
+
+async function closeConnectionTab(tabIndex) {
+  if (tabIndex < 0 || tabIndex >= connectionTabs.length) return;
+  
+  const tab = connectionTabs[tabIndex];
+  
+  // Disconnect from database
+  try {
+    await window.api.disconnectDB(tab.connectionId);
+  } catch (error) {
+    console.error('Error disconnecting from database:', error);
+  }
+  
+  // Remove tab from array
+  connectionTabs.splice(tabIndex, 1);
+  
+  // Update active tab index
+  if (activeTabIndex === tabIndex) {
+    // If closing active tab, switch to previous tab or reset if no tabs left
+    if (connectionTabs.length > 0) {
+      const newActiveIndex = Math.max(0, Math.min(tabIndex - 1, connectionTabs.length - 1));
+      switchToTab(newActiveIndex);
+    } else {
+      // No tabs left
+      activeTabIndex = -1;
+      currentConnectionId = null;
+      currentSchema = null;
+      queryEditor.value = '';
+      handleDatabaseDisconnect();
+    }
+  } else if (activeTabIndex > tabIndex) {
+    // Adjust active tab index if it was after the closed tab
+    activeTabIndex--;
+  }
+  
+  renderConnectionTabs();
 }
 
 function setupEventListeners() {
@@ -492,67 +661,61 @@ function setupEventListeners() {
   });
 
   // Connection Modal
-  document.getElementById('addConnectionBtn').addEventListener('click', () => openConnectionModal());
-  document.getElementById('welcomeAddConnection').addEventListener('click', () => openConnectionModal());
-  document.getElementById('closeConnectionModal').addEventListener('click', () => closeConnectionModal());
-  document.getElementById('cancelConnectionBtn').addEventListener('click', () => closeConnectionModal());
+  document.getElementById('addConnectionBtn')?.addEventListener('click', () => openConnectionModal());
+  document.getElementById('welcomeAddConnection')?.addEventListener('click', () => openConnectionModal());
+  document.getElementById('closeConnectionModal')?.addEventListener('click', () => closeConnectionModal());
+  document.getElementById('cancelConnectionBtn')?.addEventListener('click', () => closeConnectionModal());
 
   // Backup Button
-  document.getElementById('backupDatabaseBtn').addEventListener('click', () => {
+  document.getElementById('backupDatabaseBtn')?.addEventListener('click', () => {
     if (currentConnectionId) {
       const dbName = connections.find(c => c.id === currentConnectionId)?.name || 'database';
       downloadDatabaseBackup(currentConnectionId, dbName);
     }
   });
-  document.getElementById('testConnectionBtn').addEventListener('click', testConnection);
-  connectionForm.addEventListener('submit', saveConnection);
+  document.getElementById('testConnectionBtn')?.addEventListener('click', testConnection);
+  connectionForm?.addEventListener('submit', saveConnection);
   
   // Query Editor
-  document.getElementById('executeQueryBtn').addEventListener('click', executeQuery);
-  document.getElementById('executeSelectedBtn').addEventListener('click', executeSelectedQuery);
-  document.getElementById('stopQueryBtn').addEventListener('click', stopQuery);
-  document.getElementById('generateSQLBtn').addEventListener('click', generateSQL);
-  document.getElementById('explainQueryBtn').addEventListener('click', explainQuery);
-  document.getElementById('queryHistoryBtn').addEventListener('click', openQueryHistoryModal);
-  document.getElementById('clearEditorBtn').addEventListener('click', () => {
+  document.getElementById('executeQueryBtn')?.addEventListener('click', executeQuery);
+  document.getElementById('executeSelectedBtn')?.addEventListener('click', executeSelectedQuery);
+  document.getElementById('stopQueryBtn')?.addEventListener('click', stopQuery);
+  document.getElementById('generateSQLBtn')?.addEventListener('click', generateSQL);
+  document.getElementById('explainQueryBtn')?.addEventListener('click', explainQuery);
+  document.getElementById('queryHistoryBtn')?.addEventListener('click', openQueryHistoryModal);
+  document.getElementById('clearEditorBtn')?.addEventListener('click', () => {
     queryEditor.value = '';
     updateLineNumbers();
   });
   
   // Limit dropdown
-  limitSelect.addEventListener('change', handleLimitChange);
+  limitSelect?.addEventListener('change', handleLimitChange);
   
   // Line numbers and autocomplete
-  queryEditor.addEventListener('input', () => {
+  queryEditor?.addEventListener('input', () => {
     updateLineNumbers();
     handleAutocomplete();
+    
+    // Save content to current active tab
+    if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+      connectionTabs[activeTabIndex].queryEditorContent = queryEditor.value;
+    }
   });
   
   // Update execute selected button state on selection change
-  queryEditor.addEventListener('selectionchange', updateExecuteSelectedButtonState);
-  queryEditor.addEventListener('keyup', updateExecuteSelectedButtonState);
-  queryEditor.addEventListener('mouseup', updateExecuteSelectedButtonState);
+  queryEditor?.addEventListener('selectionchange', updateExecuteSelectedButtonState);
+  queryEditor?.addEventListener('keyup', updateExecuteSelectedButtonState);
+  queryEditor?.addEventListener('mouseup', updateExecuteSelectedButtonState);
   
-  queryEditor.addEventListener('scroll', () => {
+  queryEditor?.addEventListener('scroll', () => {
     const lineNumbers = document.getElementById('lineNumbers');
     lineNumbers.scrollTop = queryEditor.scrollTop;
   });
   
-  // Keyboard shortcuts
-  queryEditor.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'Enter') {
-      e.preventDefault();
-      executeSelectedQuery();
-      return;
-    }
-    
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      executeQuery();
-      return;
-    }
-    
-    // Handle autocomplete navigation
+  // Keyboard shortcuts for query editor
+  queryEditor?.addEventListener('keydown', (e) => {
+    // Don't handle Ctrl+Enter here, let the global handler take care of it
+    // Only handle autocomplete navigation here
     const popover = document.getElementById('autocompletePopover');
     if (!popover.classList.contains('hidden')) {
       if (e.key === 'ArrowDown') {
@@ -576,15 +739,15 @@ function setupEventListeners() {
   });
   
   // Shortcut hover detection
-  queryEditor.addEventListener('mousemove', (e) => {
+  queryEditor?.addEventListener('mousemove', (e) => {
     handleShortcutHover(e);
   });
   
-  queryEditor.addEventListener('mouseleave', () => {
+  queryEditor?.addEventListener('mouseleave', () => {
     hideShortcutTooltip();
   });
   
-  aiPrompt.addEventListener('keydown', (e) => {
+  aiPrompt?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       generateSQL();
@@ -592,13 +755,13 @@ function setupEventListeners() {
   });
   
   // AI Panel
-  document.getElementById('toggleAIBtn').addEventListener('click', toggleAIPanel);
-  document.getElementById('closeAIBtn').addEventListener('click', () => {
-    aiPanel.classList.add('hidden');
+  document.getElementById('toggleAIBtn')?.addEventListener('click', toggleAIPanel);
+  document.getElementById('closeAIBtn')?.addEventListener('click', () => {
+    aiPanel?.classList.add('hidden');
   });
-  document.getElementById('sendAIChatBtn').addEventListener('click', sendChatMessage);
+  document.getElementById('sendAIChatBtn')?.addEventListener('click', sendChatMessage);
   
-  aiChatInput.addEventListener('keydown', (e) => {
+  aiChatInput?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendChatMessage();
@@ -606,7 +769,7 @@ function setupEventListeners() {
   });
   
   // PSQL Terminal
-  psqlInput.addEventListener('keydown', (e) => {
+  psqlInput?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       executePSQLCommand();
@@ -640,35 +803,47 @@ function setupEventListeners() {
   });
   
   // Sidebar and Database Browser toggles
-  document.getElementById('toggleSidebarBtn')?.addEventListener('click', toggleSidebar);
-  document.getElementById('showSidebarBtn')?.addEventListener('click', toggleSidebar);
-  document.getElementById('toggleDBBrowserBtn')?.addEventListener('click', toggleDBBrowser);
-  document.getElementById('showDBBrowserBtn')?.addEventListener('click', toggleDBBrowser);
+  document.getElementById('toggleSidebarBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleSidebar();
+  });
+  document.getElementById('showSidebarBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleSidebar();
+  });
+  document.getElementById('toggleDBBrowserBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleDBBrowser();
+  });
+  document.getElementById('showDBBrowserBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    toggleDBBrowser();
+  });
   
   // Snippets
-  document.getElementById('addSnippetBtn').addEventListener('click', () => openSnippetModal());
-  document.getElementById('closeSnippetModal').addEventListener('click', () => {
+  document.getElementById('addSnippetBtn')?.addEventListener('click', () => openSnippetModal());
+  document.getElementById('closeSnippetModal')?.addEventListener('click', () => {
     document.getElementById('snippetModal').classList.add('hidden');
   });
-  document.getElementById('cancelSnippetBtn').addEventListener('click', () => {
+  document.getElementById('cancelSnippetBtn')?.addEventListener('click', () => {
     document.getElementById('snippetModal').classList.add('hidden');
   });
-  document.getElementById('snippetForm').addEventListener('submit', saveSnippet);
+  document.getElementById('snippetForm')?.addEventListener('submit', saveSnippet);
   
   // Variables
-  document.getElementById('addVariableBtn').addEventListener('click', () => openVariableModal());
-  document.getElementById('closeVariableModal').addEventListener('click', () => {
+  document.getElementById('addVariableBtn')?.addEventListener('click', () => openVariableModal());
+  document.getElementById('closeVariableModal')?.addEventListener('click', () => {
     document.getElementById('variableModal').classList.add('hidden');
   });
-  document.getElementById('cancelVariableBtn').addEventListener('click', () => {
+  document.getElementById('cancelVariableBtn')?.addEventListener('click', () => {
     document.getElementById('variableModal').classList.add('hidden');
   });
-  document.getElementById('variableForm').addEventListener('submit', saveVariable);
+  document.getElementById('variableForm')?.addEventListener('submit', saveVariable);
   
   // DBML
-  document.getElementById('loadSchemaBtn').addEventListener('click', loadSchemaToDBML);
-  document.getElementById('renderDBMLBtn').addEventListener('click', renderDBML);
-  document.getElementById('clearDBMLBtn').addEventListener('click', () => {
+  document.getElementById('loadSchemaBtn')?.addEventListener('click', loadSchemaToDBML);
+  document.getElementById('renderDBMLBtn')?.addEventListener('click', renderDBML);
+  document.getElementById('clearDBMLBtn')?.addEventListener('click', () => {
     document.getElementById('dbmlEditor').value = '';
     const viewport = document.getElementById('dbmlViewport');
     if (viewport) {
@@ -678,47 +853,47 @@ function setupEventListeners() {
   });
 
   // DBML Zoom and Pan
-  document.getElementById('zoomInBtn').addEventListener('click', () => zoomDBML(1.2));
-  document.getElementById('zoomOutBtn').addEventListener('click', () => zoomDBML(0.8));
-  document.getElementById('resetZoomBtn').addEventListener('click', resetDBMLZoom);
+  document.getElementById('zoomInBtn')?.addEventListener('click', () => zoomDBML(1.2));
+  document.getElementById('zoomOutBtn')?.addEventListener('click', () => zoomDBML(0.8));
+  document.getElementById('resetZoomBtn')?.addEventListener('click', resetDBMLZoom);
   
   // Initialize DBML pan and zoom
   initializeDBMLPanZoom();
   
   // Override execute query button to use placeholder replacement
-  document.getElementById('executeQueryBtn').addEventListener('click', executeQuery);
+  document.getElementById('executeQueryBtn')?.addEventListener('click', executeQuery);
   
   // Refresh Schema
-  document.getElementById('refreshSchemaBtn').addEventListener('click', loadDatabaseSchema);
+  document.getElementById('refreshSchemaBtn')?.addEventListener('click', loadDatabaseSchema);
   
   // Database Search
-  document.getElementById('dbSearchInput').addEventListener('input', (e) => {
+  document.getElementById('dbSearchInput')?.addEventListener('input', (e) => {
     filterDatabaseTree(e.target.value);
   });
   
   // Settings
-  document.getElementById('settingsBtn').addEventListener('click', () => openSettingsModal());
-  document.getElementById('closeSettingsModal').addEventListener('click', () => {
+  document.getElementById('settingsBtn')?.addEventListener('click', () => openSettingsModal());
+  document.getElementById('closeSettingsModal')?.addEventListener('click', () => {
     document.getElementById('settingsModal').classList.add('hidden');
   });
-  document.getElementById('themeSelect').addEventListener('change', (e) => {
+  document.getElementById('themeSelect')?.addEventListener('change', (e) => {
     changeTheme(e.target.value);
   });
   
   // API Key Management
-  document.getElementById('saveApiKeyBtn').addEventListener('click', () => saveApiKey());
-  document.getElementById('toggleApiKeyVisibility').addEventListener('click', () => toggleApiKeyVisibility());
-  document.getElementById('apiKeyInput').addEventListener('keydown', (e) => {
+  document.getElementById('saveApiKeyBtn')?.addEventListener('click', () => saveApiKey());
+  document.getElementById('toggleApiKeyVisibility')?.addEventListener('click', () => toggleApiKeyVisibility());
+  document.getElementById('apiKeyInput')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       saveApiKey();
     }
   });
   
   // Add Database Modal
-  document.getElementById('closeAddDatabaseModal').addEventListener('click', () => {
+  document.getElementById('closeAddDatabaseModal')?.addEventListener('click', () => {
     document.getElementById('addDatabaseModal').classList.add('hidden');
   });
-  document.getElementById('cancelAddDatabaseBtn').addEventListener('click', () => {
+  document.getElementById('cancelAddDatabaseBtn')?.addEventListener('click', () => {
     document.getElementById('addDatabaseModal').classList.add('hidden');
   });
   
@@ -796,17 +971,8 @@ function setupResultsResize() {
   let startEditorHeight = 0;
   let startResultsHeight = 0;
   
-  // Load saved heights from localStorage
-  const savedEditorHeight = localStorage.getItem('neurodb_editor_height');
-  const savedResultsHeight = localStorage.getItem('neurodb_results_height');
-  
-  if (savedEditorHeight && savedResultsHeight) {
-    editorContainer.style.height = savedEditorHeight + 'px';
-    resultsContainer.style.height = savedResultsHeight + 'px';
-  } else {
-    // Set default heights
-    updateContainerHeights();
-  }
+  // Initialize heights
+  updateContainerHeights();
   
   // Mouse down on resize handle
   resizeHandle.addEventListener('mousedown', (e) => {
@@ -814,6 +980,11 @@ function setupResultsResize() {
     startY = e.clientY;
     startEditorHeight = editorContainer.offsetHeight;
     startResultsHeight = resultsContainer.offsetHeight;
+    
+    // If results container doesn't have a fixed height, calculate it
+    if (!resultsContainer.style.height || resultsContainer.style.height === '') {
+      startResultsHeight = resultsContainer.offsetHeight;
+    }
     
     // Prevent text selection during resize
     document.body.style.userSelect = 'none';
@@ -867,12 +1038,22 @@ function updateContainerHeights() {
   
   if (!editorContainer || !resultsContainer || !querySection) return;
   
-  const availableHeight = querySection.offsetHeight - 100; // Account for other UI elements
-  const editorHeight = Math.max(150, Math.floor(availableHeight * 0.4)); // 40% for editor
-  const resultsHeight = Math.max(150, availableHeight - editorHeight); // Remaining for results
+  // Check if user has manually resized (saved heights exist)
+  const savedEditorHeight = localStorage.getItem('neurodb_editor_height');
+  const savedResultsHeight = localStorage.getItem('neurodb_results_height');
   
-  editorContainer.style.height = editorHeight + 'px';
-  resultsContainer.style.height = resultsHeight + 'px';
+  if (savedEditorHeight && savedResultsHeight) {
+    // Use saved heights from manual resize
+    editorContainer.style.height = savedEditorHeight + 'px';
+    resultsContainer.style.height = savedResultsHeight + 'px';
+  } else {
+    // Default behavior: let results container flex to take remaining space
+    const availableHeight = querySection.offsetHeight - 100; // Account for other UI elements
+    const editorHeight = Math.max(200, Math.floor(availableHeight * 0.5)); // 50% for editor
+    
+    editorContainer.style.height = editorHeight + 'px';
+    resultsContainer.style.height = ''; // Remove fixed height to allow flex
+  }
 }
 
 // Connection Management
@@ -1101,15 +1282,21 @@ async function addDatabaseToServer(serverId, databaseName) {
 // Database Operations
 async function connectToDatabase(connectionId) {
   try {
+    // Check if this connection is already open in a tab
+    const existingTabIndex = connectionTabs.findIndex(tab => tab.connectionId === connectionId);
+    if (existingTabIndex >= 0) {
+      // Switch to existing tab
+      switchToTab(existingTabIndex);
+      showNotification('Switched to existing connection', 'info');
+      return;
+    }
+    
     showNotification('Connecting...', 'info');
     
     const result = await window.api.connectDB(connectionId);
     
     if (result.success) {
-      currentConnectionId = connectionId;
-      
       // Find the database in the nested structure
-      let dbName = '';
       let serverName = '';
       let databaseName = '';
       for (const server of connections) {
@@ -1117,26 +1304,22 @@ async function connectToDatabase(connectionId) {
         if (db) {
           serverName = server.name;
           databaseName = db.name;
-          dbName = `${server.name} / ${db.name}`;
           break;
         }
       }
 
+      // Create new connection tab
+      const newTab = createConnectionTab(connectionId, serverName, databaseName);
       
-      // Update top bar
-      document.getElementById('currentConnection').textContent = 
-        `Connected to ${dbName}`;
+      // Switch to the new tab
+      const newTabIndex = connectionTabs.length - 1;
+      switchToTab(newTabIndex);
       
       // Show backup button
       const backupBtn = document.getElementById('backupDatabaseBtn');
       if (backupBtn) {
         backupBtn.classList.remove('hidden');
       }
-      
-      // Update title bar
-      const titleBarDbName = document.getElementById('titleBarDbName');
-      titleBarDbName.textContent = dbName;
-      titleBarDbName.classList.add('connected');
       
       welcomeScreen.classList.add('hidden');
       databaseView.classList.remove('hidden');
@@ -1269,7 +1452,9 @@ function renderDatabaseTree(schema) {
         tableContent.style.flex = '1';
         
         const tableName_span = document.createElement('span');
-        tableName_span.innerHTML = `� ${tableName} <span style="color: var(--text-secondary); font-size: 11px;">(${tableInfo.columns.length})</span>`;
+        // Show the table name with quotes if it needs them
+        const displayName = quoteIdentifierIfNeeded(tableName);
+        tableName_span.innerHTML = `🗃️ ${displayName} <span style="color: var(--text-secondary); font-size: 11px;">(${tableInfo.columns.length})</span>`;
         tableName_span.style.flex = '1';
         tableName_span.style.cursor = 'pointer';
         
@@ -1339,7 +1524,9 @@ function renderDatabaseTree(schema) {
         viewContent.style.flex = '1';
         
         const viewName_span = document.createElement('span');
-        viewName_span.innerHTML = `� ${viewName} <span style="color: var(--text-secondary); font-size: 11px;">(view)</span>`;
+        // Show the view name with quotes if it needs them
+        const displayViewName = quoteIdentifierIfNeeded(viewName);
+        viewName_span.innerHTML = `👁️ ${displayViewName} <span style="color: var(--text-secondary); font-size: 11px;">(view)</span>`;
         viewName_span.style.flex = '1';
         viewName_span.style.cursor = 'pointer';
         
@@ -1405,29 +1592,13 @@ function selectTable(schemaName, tableName, tableInfo) {
   };
   
   // Generate query with all column names and properly formatted table name
-  const columnNames = tableInfo.columns.map(c => c.name).join(',\n  ');
+  // Quote column names if they need it
+  const columnNames = tableInfo.columns.map(c => quoteIdentifierIfNeeded(c.name)).join(',\n  ');
   
-  // Handle table name formatting for PostgreSQL
-  let formattedTableName = fullTableName;
-  const nameParts = formattedTableName.split('.');
-  if (nameParts.length > 2) {
-    // Take the last two parts (schema.table)
-    formattedTableName = `${nameParts[nameParts.length - 2]}.${nameParts[nameParts.length - 1]}`;
-  } else if (nameParts.length === 1) {
-    // If no schema specified, use just the table name
-    formattedTableName = nameParts[0];
-  }
-  
-  // Quote table name parts if they contain special characters or are reserved words
-  const tableNameParts = formattedTableName.split('.');
-  if (tableNameParts.length === 2) {
-    const [schema, table] = tableNameParts;
-    const quotedSchema = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema) ? schema : `"${schema}"`;
-    const quotedTable = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table) ? table : `"${table}"`;
-    formattedTableName = `${quotedSchema}.${quotedTable}`;
-  } else {
-    formattedTableName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(formattedTableName) ? formattedTableName : `"${formattedTableName}"`;
-  }
+  // Handle table name formatting for PostgreSQL - use schema.table format with proper quoting
+  const quotedSchema = quoteIdentifierIfNeeded(schemaName);
+  const quotedTable = quoteIdentifierIfNeeded(tableName);
+  const formattedTableName = `${quotedSchema}.${quotedTable}`;
   
   queryEditor.value = `SELECT\n  ${columnNames}\nFROM ${formattedTableName}${currentLimit === 'all' ? '' : `\nLIMIT ${currentLimit}`};`;
   
@@ -1453,27 +1624,10 @@ function selectView(schemaName, viewName, viewInfo) {
     type: 'view'
   };
   
-  // Handle view name formatting for PostgreSQL
-  let formattedViewName = fullViewName;
-  const nameParts = formattedViewName.split('.');
-  if (nameParts.length > 2) {
-    // Take the last two parts (schema.view)
-    formattedViewName = `${nameParts[nameParts.length - 2]}.${nameParts[nameParts.length - 1]}`;
-  } else if (nameParts.length === 1) {
-    // If no schema specified, use just the view name
-    formattedViewName = nameParts[0];
-  }
-  
-  // Quote view name parts if they contain special characters or are reserved words
-  const viewNameParts = formattedViewName.split('.');
-  if (viewNameParts.length === 2) {
-    const [schema, view] = viewNameParts;
-    const quotedSchema = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema) ? schema : `"${schema}"`;
-    const quotedView = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(view) ? view : `"${view}"`;
-    formattedViewName = `${quotedSchema}.${quotedView}`;
-  } else {
-    formattedViewName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(formattedViewName) ? formattedViewName : `"${formattedViewName}"`;
-  }
+  // Handle view name formatting for PostgreSQL - use schema.view format with proper quoting
+  const quotedSchema = quoteIdentifierIfNeeded(schemaName);
+  const quotedView = quoteIdentifierIfNeeded(viewName);
+  const formattedViewName = `${quotedSchema}.${quotedView}`;
   
   queryEditor.value = `SELECT *\nFROM ${formattedViewName}${currentLimit === 'all' ? '' : `\nLIMIT ${currentLimit}`};`;
   
@@ -1751,6 +1905,12 @@ async function executeQuery() {
       globalState.lastExecutedQuery = query;
       globalState.lastQueryResults = result.rows || [];
       
+      // Save query results to current tab
+      if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+        connectionTabs[activeTabIndex].queryResults = result.rows || [];
+        connectionTabs[activeTabIndex].queryFields = result.fields || [];
+      }
+      
       if (result.rows && result.rows.length > 0) {
         renderResultsTable(result.rows, result.fields);
       } else {
@@ -1758,6 +1918,12 @@ async function executeQuery() {
         hideSearchControls();
         // Disable export buttons for non-SELECT queries
         disableExportButtons();
+        
+        // Clear results from current tab since no rows returned
+        if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+          connectionTabs[activeTabIndex].queryResults = null;
+          connectionTabs[activeTabIndex].queryFields = null;
+        }
       }
       
       showNotification('Query executed successfully', 'success');
@@ -1771,6 +1937,13 @@ async function executeQuery() {
       `;
       // Disable export buttons on error
       disableExportButtons();
+      
+      // Clear results from current tab on error
+      if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+        connectionTabs[activeTabIndex].queryResults = null;
+        connectionTabs[activeTabIndex].queryFields = null;
+      }
+      
       showNotification('Query failed', 'error');
     }
   } catch (error) {
@@ -2064,6 +2237,13 @@ function renderResultsTable(rows, fields) {
     th.textContent = key;
     th.dataset.columnIndex = colIndex;
     
+    // Calculate column width based on column name length + padding
+    // Base width of 60px + 8px per character in column name
+    const baseWidth = 120; // Minimum width
+    const charWidth = 8; // Approximate width per character
+    const calculatedWidth = Math.max(baseWidth, key.length * charWidth + 60);
+    th.style.width = `${calculatedWidth}px`;
+    
     // Add resize handle (except for the last column)
     if (colIndex < Object.keys(rows[0]).length - 1) {
       const resizeHandle = document.createElement('div');
@@ -2178,8 +2358,42 @@ function renderResultsTable(rows, fields) {
   table.appendChild(tbody);
   resultsTableContainer.appendChild(table);
   
+  // Enhance scrolling behavior for large datasets
+  enhanceScrollingForLargeDatasets(rows.length, resultsTableContainer);
+  
   // Enable export buttons when we have results
   enableExportButtons();
+}
+
+// Enhance scrolling behavior for large datasets
+function enhanceScrollingForLargeDatasets(rowCount, container) {
+  // Remove any existing large-dataset class
+  container.classList.remove('large-dataset');
+  
+  // If we have more than 100 rows, optimize for scrolling
+  if (rowCount > 100) {
+    container.classList.add('large-dataset');
+    
+    // Ensure proper scrolling behavior
+    container.style.overflowY = 'auto';
+    container.style.overflowX = 'auto';
+    
+    // Add smooth scrolling
+    container.style.scrollBehavior = 'smooth';
+    
+    console.log(`Enhanced scrolling for ${rowCount} rows`);
+  }
+  
+  // Always ensure the container can scroll
+  if (container.scrollHeight > container.clientHeight) {
+    container.style.overflowY = 'auto';
+  }
+  
+  // Ensure horizontal scrolling if table is wider than container
+  const table = container.querySelector('.results-table');
+  if (table && table.scrollWidth > container.clientWidth) {
+    container.style.overflowX = 'auto';
+  }
 }
 
 // Search and Sort functionality for results
@@ -2896,17 +3110,43 @@ async function explainQuery() {
     return;
   }
   
+  // Open AI panel immediately and show loading message
+  aiPanel.classList.remove('hidden');
+  addAIMessage('assistant', '🔍 Analyzing your query...');
+  
   try {
     const result = await window.api.explainQuery(query, currentSchema);
     
     if (result.success) {
+      // Remove the loading message and add the actual explanation
+      const messages = aiChatContainer.querySelectorAll('.ai-message.assistant');
+      const loadingMessage = messages[messages.length - 1];
+      if (loadingMessage && loadingMessage.textContent.includes('Analyzing your query')) {
+        loadingMessage.remove();
+      }
+      
       addAIMessage('assistant', result.explanation);
-      aiPanel.classList.remove('hidden');
       showNotification('Query explained', 'success');
     } else {
+      // Remove the loading message and show error
+      const messages = aiChatContainer.querySelectorAll('.ai-message.assistant');
+      const loadingMessage = messages[messages.length - 1];
+      if (loadingMessage && loadingMessage.textContent.includes('Analyzing your query')) {
+        loadingMessage.remove();
+      }
+      
+      addAIMessage('assistant', '❌ Failed to explain query. Please try again.');
       showNotification('Failed to explain query', 'error');
     }
   } catch (error) {
+    // Remove the loading message and show error
+    const messages = aiChatContainer.querySelectorAll('.ai-message.assistant');
+    const loadingMessage = messages[messages.length - 1];
+    if (loadingMessage && loadingMessage.textContent.includes('Analyzing your query')) {
+      loadingMessage.remove();
+    }
+    
+    addAIMessage('assistant', '❌ Error explaining query. Please try again.');
     showNotification('Error explaining query', 'error');
   }
 }
@@ -2914,6 +3154,46 @@ async function explainQuery() {
 // AI Chat
 function toggleAIPanel() {
   aiPanel.classList.toggle('hidden');
+}
+
+// Focus AI prompt input
+function focusAIPrompt() {
+  const aiPromptInput = document.getElementById('aiPrompt');
+  if (aiPromptInput) {
+    // Switch to query tab if not already active
+    const activeTab = document.querySelector('.header-tab.active');
+    if (!activeTab || activeTab.dataset.tab !== 'query') {
+      switchMainTab('query');
+    }
+    // Focus the AI prompt input
+    aiPromptInput.focus();
+  }
+}
+
+// Save query file function for shortcut
+async function saveQueryFile() {
+  try {
+    const content = queryEditor.value;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    
+    const result = await window.api.saveFile({
+      content: content,
+      defaultPath: `query_${timestamp}.sql`,
+      filters: [
+        { name: 'SQL Files', extensions: ['sql'] },
+        { name: 'Text Files', extensions: ['txt'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (result.success) {
+      showNotification('File saved successfully', 'success');
+    } else if (!result.canceled) {
+      showNotification('Failed to save file: ' + result.error, 'error');
+    }
+  } catch (error) {
+    showNotification('Error saving file: ' + error.message, 'error');
+  }
 }
 
 async function sendChatMessage() {
@@ -4319,6 +4599,8 @@ function toggleSidebar() {
   const showBtn = document.getElementById('showSidebarBtn');
   const icon = toggleBtn?.querySelector('svg');
   
+  if (!sidebar) return;
+  
   sidebar.classList.toggle('hidden');
   
   // Show/hide the show button in the title bar
@@ -4335,17 +4617,19 @@ function toggleDBBrowser() {
   const dbBrowser = document.getElementById('dbBrowser');
   const toggleBtn = document.getElementById('toggleDBBrowserBtn');
   const showBtn = document.getElementById('showDBBrowserBtn');
-  const icon = toggleBtn.querySelector('svg');
+  const icon = toggleBtn?.querySelector('svg');
+  
+  if (!dbBrowser) return;
   
   dbBrowser.classList.toggle('hidden');
   
   // Show/hide the show button in the AI prompt bar
   if (dbBrowser.classList.contains('hidden')) {
-    icon.style.transform = 'rotate(-90deg)';
-    showBtn.classList.remove('hidden');
+    if (icon) icon.style.transform = 'rotate(-90deg)';
+    if (showBtn) showBtn.classList.remove('hidden');
   } else {
-    icon.style.transform = 'rotate(0deg)';
-    showBtn.classList.add('hidden');
+    if (icon) icon.style.transform = 'rotate(0deg)';
+    if (showBtn) showBtn.classList.add('hidden');
   }
 }
 
@@ -4544,6 +4828,27 @@ function navigateAutocomplete(direction) {
   items[autocompleteSelectedIndex]?.scrollIntoView({ block: 'nearest' });
 }
 
+// Helper function to properly quote PostgreSQL identifiers if needed
+function quoteIdentifierIfNeeded(identifier) {
+  if (!identifier) return identifier;
+  
+  // Check if identifier needs quoting:
+  // 1. Contains uppercase letters
+  // 2. Contains special characters (except underscore)
+  // 3. Starts with a number
+  
+  const needsQuoting = /[A-Z]/.test(identifier) || // Has uppercase
+                       /[^a-z0-9_]/.test(identifier) || // Has special chars
+                       /^\d/.test(identifier); // Starts with number
+  
+  // If it's already quoted, return as-is
+  if (identifier.startsWith('"') && identifier.endsWith('"')) {
+    return identifier;
+  }
+  
+  return needsQuoting ? `"${identifier}"` : identifier;
+}
+
 function selectAutocompleteItem() {
   const items = document.querySelectorAll('.autocomplete-item');
   const selected = items[autocompleteSelectedIndex];
@@ -4579,13 +4884,17 @@ function selectAutocompleteItem() {
     
     if (sqlMatch && tableName) {
       const keywordEnd = textBeforeCursor.lastIndexOf(sqlMatch[2]) || textBeforeCursor.length;
+      
+      // Properly quote the table name if it contains uppercase or special characters
+      const quotedTableName = quoteIdentifierIfNeeded(tableName);
+      
       const newText = textBeforeCursor.substring(0, keywordEnd) + 
-                      tableName + 
+                      quotedTableName + 
                       textAfterCursor;
       
       queryEditor.value = newText;
       queryEditor.selectionStart = queryEditor.selectionEnd = 
-        keywordEnd + tableName.length;
+        keywordEnd + quotedTableName.length;
       
       updateLineNumbers();
     }
@@ -5050,6 +5359,16 @@ async function saveCellEdit() {
 
             // Update global state
             globalState.lastQueryResults[rowIndex][columnName] = newValue;
+            
+            // Visual feedback for successful update
+            cell.style.backgroundColor = 'var(--success)';
+            cell.style.color = 'white';
+            setTimeout(() => {
+                cell.style.backgroundColor = '';
+                cell.style.color = '';
+            }, 1000);
+        } else {
+            console.warn('Could not find cell to update in UI');
         }
 
         // 9. Show success and hide popover
@@ -5338,20 +5657,79 @@ function initializeDBMLPanZoom() {
     }
   });
 
-  // Keyboard shortcuts for zoom
+  // Global Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
+    // Handle DBML zoom shortcuts when DBML tab is active
     const activeTab = document.querySelector('.header-tab.active');
     if (activeTab && activeTab.dataset.tab === 'dbml') {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === '=' || e.key === '+') {
           e.preventDefault();
           zoomDBML(1.2);
+          return;
         } else if (e.key === '-') {
           e.preventDefault();
           zoomDBML(0.8);
+          return;
         } else if (e.key === '0') {
           e.preventDefault();
           resetDBMLZoom();
+          return;
+        }
+      }
+    }
+
+    // Global shortcuts
+    if (e.ctrlKey || e.metaKey) {
+      // Tab navigation: Ctrl+1, Ctrl+2, Ctrl+3, Ctrl+4, Ctrl+5
+      if (e.key >= '1' && e.key <= '5') {
+        e.preventDefault();
+        const tabMapping = {
+          '1': 'query',
+          '2': 'psql', 
+          '3': 'dbml',
+          '4': 'snippets',
+          '5': 'variables'
+        };
+        switchMainTab(tabMapping[e.key]);
+        return;
+      }
+
+      // Ctrl+I: Toggle AI panel
+      if (e.key === 'i' || e.key === 'I') {
+        e.preventDefault();
+        toggleAIPanel();
+        return;
+      }
+
+      // Ctrl+G: Focus AI prompt input
+      if (e.key === 'g' || e.key === 'G') {
+        e.preventDefault();
+        focusAIPrompt();
+        return;
+      }
+
+      // Query execution shortcuts (only when query tab is active or query editor is focused)
+      if (activeTab && activeTab.dataset.tab === 'query' || document.activeElement === queryEditor) {
+        // Ctrl+Enter: Execute entire query
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          executeQuery();
+          return;
+        }
+
+        // Ctrl+Shift+Enter: Execute selected query
+        if (e.key === 'Enter' && e.shiftKey) {
+          e.preventDefault();
+          executeSelectedQuery();
+          return;
+        }
+
+        // Ctrl+S: Save query file
+        if (e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          saveQueryFile();
+          return;
         }
       }
     }
