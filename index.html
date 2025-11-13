@@ -53,7 +53,7 @@
               Variables
             </div>
           </div>
-          <span id="titleBarDbName">Welcome to NeuroDB</span>
+          <span id="titleBarDbName"></span>
         </div>
         <div class="title-bar-right">
           <button class="btn-icon" id="toggleAIBtn" title="Toggle AI Assistant">
@@ -130,7 +130,7 @@
         <!-- Welcome Screen -->
         <div class="welcome-screen" id="welcomeScreen">
           <div class="welcome-content">
-            <h2>Welcome to NeuroDB</h2>
+            <h2>NeuroDB</h2>
             <p>AI-powered PostgreSQL database management</p>
             <div class="welcome-actions">
               <button class="btn-primary" id="welcomeAddConnection">
@@ -159,8 +159,11 @@
                 </svg>
               </button>
               <button class="btn-icon" id="refreshSchemaBtn" title="Refresh Schema">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M2 8a6 6 0 0112 0M14 8a6 6 0 01-12 0"/>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                  <path d="M21 3v5h-5"/>
+                  <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                  <path d="M3 21v-5h5"/>
                 </svg>
               </button>
             </div>
@@ -174,6 +177,9 @@
               <!-- Database tree will be loaded here -->
             </div>
           </div>
+
+          <!-- Resize Handle -->
+          <div class="resize-handle-vertical" id="dbResizeHandle"></div>
 
           <!-- Query Section -->
           <div class="query-section">
@@ -307,7 +313,7 @@
               </div>
 
               <!-- Resize Handle -->
-              <div class="resize-handle" id="resizeHandle" title="Drag to resize results panel"></div>
+              <div class="resize-handle-horizontal" id="resizeHandle" title="Drag to resize results panel"></div>
 
               <!-- Results Area -->
               <div class="results-container">
@@ -840,7 +846,33 @@
       <div class="tab-content" id="sqlTab">
         <div class="form-group">
           <label for="sqlQuery">SQL Query</label>
+          
+          <!-- AI Prompt Bar for Table Creation -->
+          <div class="ai-prompt-bar hidden" id="createTableAiPrompt">
+            <input 
+              type="text" 
+              id="createTableAiInput" 
+              placeholder="🤖 Describe the table you want to create... (e.g., 'User table with id, name, email, password')"
+              class="ai-input"
+            />
+            <button class="btn-primary" id="generateTableSQLBtn">Generate</button>
+            <button class="btn-icon" id="closeCreateTableAi" title="Close AI">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+              </svg>
+            </button>
+          </div>
+          
           <div class="sql-editor-container">
+            <div class="sql-editor-header">
+              <div class="sql-editor-controls">
+                <button type="button" class="btn-icon" id="showCreateTableAiBtn" title="Generate with AI">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM7 13.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm5 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm5 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
             <textarea 
               id="sqlQuery" 
               placeholder="CREATE TABLE your_table_name (
@@ -854,7 +886,7 @@
             ></textarea>
           </div>
           <div class="sql-editor-help">
-            <small>Write your CREATE TABLE statement. The query will be executed directly.</small>
+            <small>Write your CREATE TABLE statement or click the AI button to generate one from a description.</small>
           </div>
         </div>
       </div>
@@ -863,10 +895,30 @@
         <div></div>
         <div class="form-actions-right">
           <button type="button" class="btn-secondary" id="cancelCreateTableBtn">Cancel</button>
-          <button type="submit" class="btn-primary" id="createTableBtn">Create Table</button>
+          <button type="submit" class="btn-primary" id="createTableSubmitBtn">Create Table</button>
         </div>
       </div>
     </form>
+  </div>
+</div>
+
+
+<!-- Table Schema Modal -->
+<div class="modal hidden" id="tableSchemaModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="tableSchemaTitle">Table Schema</h3>
+      <button class="btn-icon" id="closeTableSchemaModal">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="table-schema-content" id="tableSchemaContent">
+        <!-- Schema content will be populated here -->
+      </div>
+    </div>
   </div>
 </div>
 

@@ -28,6 +28,44 @@ class DatabaseService {
     this.loadConnections();
   }
 
+  // Helper function to quote PostgreSQL identifiers when needed
+  quoteIdentifier(identifier) {
+    // Don't quote if already quoted
+    if (identifier.startsWith('"') && identifier.endsWith('"')) {
+      return identifier;
+    }
+    
+    // Check if identifier needs quoting:
+    // 1. Contains uppercase letters
+    // 2. Contains special characters (except underscore)
+    // 3. Is a PostgreSQL reserved word
+    // 4. Starts with a number
+    const needsQuoting = /[A-Z]/.test(identifier) || 
+                         /[^a-z0-9_]/.test(identifier) ||
+                         /^[0-9]/.test(identifier) ||
+                         this.isPostgreSQLReservedWord(identifier.toLowerCase());
+    
+    if (needsQuoting) {
+      return `"${identifier.replace(/"/g, '""')}"`;
+    }
+    
+    return identifier;
+  }
+
+  // Check if a word is a PostgreSQL reserved word
+  isPostgreSQLReservedWord(word) {
+    const reservedWords = [
+      'select', 'from', 'where', 'insert', 'update', 'delete', 'create', 'drop', 
+      'alter', 'table', 'index', 'view', 'database', 'schema', 'user', 'group',
+      'order', 'by', 'group', 'having', 'limit', 'offset', 'union', 'intersect',
+      'except', 'join', 'inner', 'left', 'right', 'outer', 'on', 'as', 'and',
+      'or', 'not', 'in', 'exists', 'between', 'like', 'ilike', 'similar',
+      'primary', 'foreign', 'key', 'unique', 'check', 'constraint', 'references',
+      'default', 'null', 'true', 'false', 'case', 'when', 'then', 'else', 'end'
+    ];
+    return reservedWords.includes(word.toLowerCase());
+  }
+
   // Server Management Methods
   async saveServer(server) {
     if (!server.id) {
@@ -841,20 +879,24 @@ class DatabaseService {
 
       const { tableName, columns, indexes } = tableData;
 
+      // Quote table name properly
+      const quotedTableName = this.quoteIdentifier(tableName);
+
       // Start building the CREATE TABLE statement
-      let createTableSQL = `CREATE TABLE ${tableName} (\n`;
+      let createTableSQL = `CREATE TABLE ${quotedTableName} (\n`;
       
       // Add columns
       const columnDefs = [];
       let primaryKeyColumns = [];
       
       for (const column of columns) {
-        let columnDef = `  ${column.name} ${column.dataType}`;
+        const quotedColumnName = this.quoteIdentifier(column.name);
+        let columnDef = `  ${quotedColumnName} ${column.dataType}`;
         
         // Add NOT NULL if it's a primary key
         if (column.isPrimaryKey) {
           columnDef += ' NOT NULL';
-          primaryKeyColumns.push(column.name);
+          primaryKeyColumns.push(quotedColumnName);
         }
         
         columnDefs.push(columnDef);
@@ -869,13 +911,17 @@ class DatabaseService {
       
       createTableSQL += '\n);';
       
+      console.log('Generated CREATE TABLE SQL:', createTableSQL);
+      
       // Execute the CREATE TABLE statement
       await pool.query(createTableSQL);
       
       // Create indexes for columns that need them
       for (const indexColumn of indexes) {
-        const indexName = `idx_${tableName}_${indexColumn}`;
-        const createIndexSQL = `CREATE INDEX ${indexName} ON ${tableName} (${indexColumn});`;
+        const quotedIndexColumn = this.quoteIdentifier(indexColumn);
+        const quotedIndexName = this.quoteIdentifier(`idx_${tableName}_${indexColumn}`);
+        const createIndexSQL = `CREATE INDEX ${quotedIndexName} ON ${quotedTableName} (${quotedIndexColumn});`;
+        console.log('Generated CREATE INDEX SQL:', createIndexSQL);
         await pool.query(createIndexSQL);
       }
       

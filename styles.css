@@ -649,15 +649,20 @@ body {
   height: 100%;
   display: flex;
   overflow: hidden;
+  position: relative;
 }
 
 .db-browser {
   width: 250px;
+  height: 100%;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 0.1s ease;
+  min-width: 200px;
+  max-width: 600px;
 }
 
 .db-browser-header {
@@ -678,9 +683,79 @@ body {
   transition: transform 0.2s ease;
 }
 
+/* Database Browser Resize Handle - Full Height Draggable */
+.resize-handle-vertical {
+  width: 4px; /* Thinner but still draggable */
+  background: var(--border-color);
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  transition: all 0.2s ease;
+  opacity: 0.8;
+  height: 100%;
+  align-self: stretch;
+  border: none; /* Remove borders for cleaner look */
+}
+
+.resize-handle-vertical:hover {
+  background-color: var(--accent-primary);
+  opacity: 1;
+}
+
+.resize-handle-vertical.active {
+  background-color: var(--accent-primary);
+  opacity: 1;
+}
+
+/* Expand clickable area for easier dragging */
+.resize-handle-vertical::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -4px;
+  right: -4px;
+  bottom: 0;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.resize-handle-vertical:hover::before {
+  background: rgba(0, 122, 204, 0.1);
+}
+
+/* Visual indicator for vertical resize handle */
+.resize-handle-vertical::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 30px;
+  background: var(--border-color);
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  opacity: 0.4;
+  transition: all 0.2s ease;
+}
+
+.resize-handle-vertical:hover::after {
+  opacity: 1;
+  background: var(--accent-primary);
+  height: 40px;
+  width: 2px;
+}
+
+/* Hide resize handle when database browser is hidden */
+.db-browser.hidden + .resize-handle-vertical {
+  width: 0;
+  opacity: 0;
+  cursor: default;
+}
+
 .db-search-container {
   position: relative;
-  padding: 0 15px 15px 15px;
+  padding: 15px 15px 15px 15px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -709,7 +784,7 @@ body {
 .db-search-icon {
   position: absolute;
   left: 23px;
-  top: 8px;
+  top: 23px; /* Adjusted to account for the 15px top padding */
   color: var(--text-secondary);
   pointer-events: none;
   width: 14px;
@@ -1200,35 +1275,65 @@ body {
   color: var(--text-primary);
 }
 
-/* Resize Handle */
-.resize-handle {
-  height: 4px;
+/* Horizontal Resize Handle - Full Width Draggable */
+.resize-handle-horizontal {
+  height: 4px; /* Thinner but still draggable */
+  width: 100%; /* Full width for easy dragging anywhere along the border */
   background: var(--border-color);
   cursor: ns-resize;
-  border-top: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
-  transition: background-color 0.2s ease;
+  border: none; /* Remove borders for cleaner look */
+  transition: all 0.2s ease;
   position: relative;
   user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
 }
 
-.resize-handle:hover {
+.resize-handle-horizontal:hover {
   background: var(--accent-primary);
+  opacity: 1;
 }
 
-.resize-handle:active {
+.resize-handle-horizontal:active {
   background: var(--accent-primary);
+  opacity: 1;
 }
 
-.resize-handle::before {
+/* Expand the clickable area for easier dragging */
+.resize-handle-horizontal::before {
   content: '';
   position: absolute;
-  top: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 40px;
-  height: 8px;
+  top: -4px;
+  left: 0;
+  right: 0;
+  bottom: -4px;
   background: transparent;
+  cursor: ns-resize;
+  z-index: 10;
+}
+
+/* Visual indicator for horizontal resize handle */
+.resize-handle-horizontal::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 2px;
+  background: var(--border-color);
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  opacity: 0.4;
+  transition: all 0.2s ease;
+}
+
+.resize-handle-horizontal:hover::after {
+  opacity: 1;
+  background: var(--accent-primary);
+  width: 60px;
+  height: 2px;
 }
 
 /* Results */
@@ -1239,7 +1344,7 @@ body {
   border-top: 1px solid var(--border-color);
   min-height: 200px;
   flex: 1; /* Take remaining space */
-  overflow: hidden;
+  overflow: visible; /* Allow child containers to handle their own scrolling */
   max-height: 100%; /* Ensure proper height constraints */
 }
 
@@ -1422,21 +1527,23 @@ body {
 .results-table-container {
   flex: 1;
   overflow: auto;
-  padding: 15px;
-  height: 100%;
+  padding: 0 0 20px 0; /* Add bottom padding to ensure last row is visible */
   box-sizing: border-box; /* Include padding in height calculation */
   min-height: 0; /* Ensure flexbox allows shrinking */
-  max-height: 100%; /* Prevent overflow from parent */
+  display: block; /* Use block layout instead of flex */
+  height: 100%; /* Ensure full height usage */
 }
 
 .no-results {
   text-align: center;
   color: var(--text-secondary);
   padding: 40px;
+  margin: 0 15px; /* Only horizontal margins to match table */
 }
 
 .results-table {
-  width: 100%;
+  width: calc(100% - 30px); /* Account for horizontal spacing */
+  margin: 0 15px; /* Only horizontal margins for spacing */
   border-collapse: collapse;
   font-size: 13px;
   table-layout: fixed; /* Enable fixed layout for better column control */
@@ -1452,9 +1559,15 @@ body {
   font-weight: 600;
   border-bottom: 2px solid var(--border-color);
   position: sticky;
-  top: 0;
+  top: 0; /* Stick to the top of scrolling container */
   z-index: 10;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  min-width: 120px; /* Increased min width for better readability */
+  width: auto; /* Let columns size based on content */
+  user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .results-table th::before {
@@ -1478,6 +1591,8 @@ body {
   -webkit-backdrop-filter: blur(10px);
   color: var(--text-secondary);
   font-weight: 500;
+  position: sticky;
+  top: 0; /* Stick to the top of scrolling container */
   z-index: 11;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
@@ -1495,16 +1610,7 @@ body {
   z-index: -1;
 }
 
-/* Column Resizing */
-.results-table th {
-  position: relative;
-  min-width: 120px; /* Increased min width for better readability */
-  width: auto; /* Let columns size based on content */
-  user-select: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* Column Resizing properties are now merged with main .results-table th rule above */
 
 .results-table th:not(:last-child) {
   border-right: 1px solid var(--border-color);
@@ -1519,16 +1625,19 @@ body {
   cursor: col-resize;
   background: transparent;
   z-index: 12;
+  border-right: 2px solid transparent;
+  transition: all 0.2s ease;
 }
 
 .results-table th .resize-handle:hover {
-  background: var(--accent-color);
-  opacity: 0.3;
+  background: rgba(0, 122, 204, 0.1);
+  border-right-color: var(--accent-primary);
 }
 
 .results-table th .resize-handle.resizing {
-  background: var(--accent-color);
-  opacity: 0.6;
+  background: rgba(0, 122, 204, 0.2);
+  border-right-color: var(--accent-primary);
+  border-right-width: 3px;
 }
 
 .results-table.resizing {
@@ -1538,6 +1647,14 @@ body {
 
 .results-table.resizing th .resize-handle {
   pointer-events: all;
+}
+
+.results-table.resizing th {
+  transition: none;
+}
+
+.results-table.resizing td {
+  transition: none;
 }
 
 .results-table td {
@@ -1928,7 +2045,7 @@ body {
 }
 
 /* Buttons */
-.btn-primary, .btn-secondary, .btn-icon {
+.btn-primary, .btn-secondary, .btn-danger, .btn-icon {
   padding: 8px 16px;
   border: none;
   border-radius: 4px;
@@ -1987,10 +2104,7 @@ body {
   color: var(--text-primary);
 }
 
-.btn-danger {
-  background: var(--error);
-  color: white;
-}
+/* Duplicate btn-danger rule removed - using the one above */
 
 /* Modal */
 .modal {
@@ -3026,7 +3140,7 @@ body {
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border: 2px solid var(--border-color);
   border-radius: 6px;
   background: var(--bg-primary);
@@ -3034,6 +3148,8 @@ body {
   font-weight: 600;
   min-width: 50px;
   justify-content: center;
+  height: 36px;
+  box-sizing: border-box;
 }
 
 .pk-checkbox:hover {
@@ -3051,7 +3167,7 @@ body {
 }
 
 .index-toggle {
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: var(--bg-primary);
   border: 2px solid var(--border-color);
   border-radius: 6px;
@@ -3062,6 +3178,11 @@ body {
   font-weight: 600;
   min-width: 50px;
   text-align: center;
+  height: 36px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .index-toggle:hover {
@@ -3075,7 +3196,7 @@ body {
 }
 
 .remove-column-btn {
-  padding: 8px 10px;
+  padding: 8px 12px;
   background: #dc3545;
   border: 2px solid #dc3545;
   border-radius: 6px;
@@ -3087,6 +3208,9 @@ body {
   font-size: 14px;
   font-weight: 600;
   transition: all 0.2s ease;
+  height: 36px;
+  box-sizing: border-box;
+  min-width: 36px;
 }
 
 .remove-column-btn:hover {
@@ -3232,7 +3356,10 @@ body {
 
 .sql-query-textarea:focus {
   outline: none;
-  border: 2px solid var(--accent-primary);
+}
+
+.sql-editor-container:focus-within {
+  border-color: var(--accent-primary);
 }
 
 .sql-query-textarea::placeholder {
@@ -3251,4 +3378,210 @@ body {
 .sql-editor-help small {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+/* SQL Editor Header */
+.sql-editor-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.sql-editor-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Remove duplicate - using original definition above */
+
+/* Create Table AI Prompt Styles - inherits from main .ai-prompt-bar */
+#createTableAiPrompt {
+  margin-bottom: 8px;
+}
+
+#createTableAiPrompt.hidden {
+  display: none !important;
+}
+
+/* Remove old AI modal styles - using inline approach now */
+
+/* Loading Animation */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Table Schema Modal Styles */
+.table-schema-content {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.schema-info {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.schema-header {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 15px;
+}
+
+.schema-header h4 {
+  margin: 0 0 10px 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.schema-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  font-size: 14px;
+}
+
+.schema-details div {
+  color: var(--text-secondary);
+}
+
+.schema-details strong {
+  color: var(--text-primary);
+}
+
+.schema-columns h4 {
+  margin: 0 0 15px 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.columns-table {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.column-header {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 1.5fr 1fr;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+/* Table Schema Modal specific styles */
+.table-schema-content .column-header > div,
+.table-schema-content .column-row > div {
+  padding: 12px 16px;
+  border-right: 1px solid var(--border-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-schema-content .column-header > div:last-child,
+.table-schema-content .column-row > div:last-child {
+  border-right: none;
+}
+
+.table-schema-content .column-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 1.5fr 1fr;
+  border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.2s ease;
+}
+
+.table-schema-content .column-row:hover {
+  background: var(--bg-hover);
+}
+
+.table-schema-content .column-row:last-child {
+  border-bottom: none;
+}
+
+.table-schema-content .col-name {
+  font-family: 'Fira Code', monospace;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.table-schema-content .col-type {
+  color: var(--accent-primary);
+  font-family: 'Fira Code', monospace;
+  font-size: 13px;
+}
+
+.table-schema-content .col-nullable,
+.table-schema-content .col-default {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.key-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.key-badge.primary {
+  background: #28a745;
+  color: white;
+}
+
+.key-badge.foreign {
+  background: #17a2b8;
+  color: white;
+}
+
+.schema-relationships {
+  border-top: 1px solid var(--border-color);
+  padding-top: 15px;
+}
+
+.schema-relationships h4 {
+  margin: 0 0 15px 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.relationships-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.relationship-item {
+  padding: 10px 15px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-family: 'Fira Code', monospace;
+}
+
+.relationship-item strong {
+  color: var(--text-primary);
+}
+
+.foreign-ref {
+  color: var(--accent-primary);
 }

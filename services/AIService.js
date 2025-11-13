@@ -88,21 +88,34 @@ class AIService {
     try {
       const schemaText = this.formatSchemaForPrompt(schema);
 
-      const systemPrompt = `You are an expert PostgreSQL assistant. Your task is to generate SQL queries based on user requests.
+      const systemPrompt = `You are an expert PostgreSQL assistant. Your task is to generate SQL statements based on user requests.
 
 ${schemaText}
 
 Rules:
-1. Generate ONLY valid PostgreSQL SQL queries
+1. Generate ONLY valid PostgreSQL SQL statements (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, DROP TABLE, etc.)
 2. Use the exact table and column names from the schema
 3. Include appropriate JOINs when querying multiple tables
 4. Add WHERE clauses for filtering when mentioned
 5. Use proper formatting and indentation
-6. Return ONLY the SQL query, no explanations or markdown
+6. Return ONLY the SQL statement, no explanations or markdown
 7. For SELECT queries, always specify column names (avoid SELECT *)
-8. Use table aliases for better readability
-9. Add appropriate ORDER BY clauses when relevant
-10. Consider performance implications
+8. For ALTER TABLE operations, use proper PostgreSQL syntax
+9. For data type changes, consider PostgreSQL-specific types (UUID, JSONB, TIMESTAMP, etc.)
+10. Use table aliases for better readability in complex queries
+11. Add appropriate ORDER BY clauses when relevant for SELECT statements
+12. Consider performance implications and constraints
+13. For DDL operations (CREATE, ALTER, DROP), ensure proper syntax and data types
+
+Examples of supported operations:
+- SELECT queries with JOINs, WHERE, ORDER BY, GROUP BY
+- INSERT statements with proper value formatting
+- UPDATE statements with WHERE conditions
+- DELETE statements with WHERE conditions
+- CREATE TABLE with proper constraints and data types
+- ALTER TABLE to add, modify, or drop columns
+- CREATE INDEX for performance optimization
+- Any other valid PostgreSQL DDL or DML operation
 
 If the request is unclear or cannot be fulfilled with the available schema, return an error message starting with "ERROR:".`;
 

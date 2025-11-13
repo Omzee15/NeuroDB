@@ -88,6 +88,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadConnections();
     await loadTheme();
     setupEventListeners();
+    setupDatabaseBrowserResize();
     applyTheme(currentTheme);
     updateLineNumbers();
     
@@ -1008,12 +1009,29 @@ function setupEventListeners() {
   // Refresh Schema
   document.getElementById('refreshSchemaBtn')?.addEventListener('click', loadDatabaseSchema);
   
+  // Reset refresh button state on page load
+  resetRefreshButton();
+  
   // Create Table
   document.getElementById('createTableBtn')?.addEventListener('click', openCreateTableModal);
   document.getElementById('closeCreateTableModal')?.addEventListener('click', closeCreateTableModal);
   document.getElementById('cancelCreateTableBtn')?.addEventListener('click', closeCreateTableModal);
   document.getElementById('createTableForm')?.addEventListener('submit', handleCreateTable);
   document.getElementById('addColumnBtn')?.addEventListener('click', addColumnRow);
+  
+  // Table Schema Modal
+  document.getElementById('closeTableSchemaModal')?.addEventListener('click', closeTableSchemaModal);
+  
+  // Create Table AI Generator (Inline)
+  document.getElementById('showCreateTableAiBtn')?.addEventListener('click', showCreateTableAi);
+  document.getElementById('closeCreateTableAi')?.addEventListener('click', hideCreateTableAi);
+  document.getElementById('generateTableSQLBtn')?.addEventListener('click', generateCreateTableSQL);
+  document.getElementById('createTableAiInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      generateCreateTableSQL();
+    }
+  });
   
   // Table Creation Tabs
   document.querySelectorAll('.tab-button').forEach(button => {
@@ -1491,14 +1509,109 @@ async function connectToDatabase(connectionId) {
   }
 }
 
+// Helper function to quote PostgreSQL identifiers when needed
+function quoteIdentifier(identifier) {
+  // Don't quote if already quoted
+  if (identifier.startsWith('"') && identifier.endsWith('"')) {
+    return identifier;
+  }
+  
+  // Check if identifier needs quoting:
+  // 1. Contains uppercase letters
+  // 2. Contains special characters (except underscore)
+  // 3. Is a PostgreSQL reserved word
+  // 4. Starts with a number
+  const needsQuoting = /[A-Z]/.test(identifier) || 
+                       /[^a-z0-9_]/.test(identifier) ||
+                       /^[0-9]/.test(identifier) ||
+                       isPostgreSQLReservedWord(identifier.toLowerCase());
+  
+  if (needsQuoting) {
+    return `"${identifier.replace(/"/g, '""')}"`;
+  }
+  
+  return identifier;
+}
+
+// Check if a word is a PostgreSQL reserved word
+function isPostgreSQLReservedWord(word) {
+  const reservedWords = [
+    'select', 'from', 'where', 'insert', 'update', 'delete', 'create', 'drop', 
+    'alter', 'table', 'index', 'view', 'database', 'schema', 'user', 'group',
+    'order', 'by', 'group', 'having', 'limit', 'offset', 'union', 'intersect',
+    'except', 'join', 'inner', 'left', 'right', 'outer', 'on', 'as', 'and',
+    'or', 'not', 'in', 'exists', 'between', 'like', 'ilike', 'similar',
+    'primary', 'foreign', 'key', 'unique', 'check', 'constraint', 'references',
+    'default', 'null', 'true', 'false', 'case', 'when', 'then', 'else', 'end'
+  ];
+  return reservedWords.includes(word.toLowerCase());
+}
+
+// Helper function to format table/column names for display and queries
+function formatIdentifierForQuery(schemaName, tableName, columnName = null) {
+  let result = '';
+  
+  if (schemaName && schemaName !== 'public') {
+    result += quoteIdentifier(schemaName) + '.';
+  }
+  
+  result += quoteIdentifier(tableName);
+  
+  if (columnName) {
+    result += '.' + quoteIdentifier(columnName);
+  }
+  
+  return result;
+}
+
+// Helper function to reset refresh button state
+function resetRefreshButton() {
+  const refreshBtn = document.getElementById('refreshSchemaBtn');
+  if (!refreshBtn) {
+    console.log('Refresh button not found');
+    return;
+  }
+  
+  const originalContent = refreshBtn.dataset.originalContent || `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+      <path d="M21 3v5h-5"/>
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+      <path d="M3 21v-5h5"/>
+    </svg>
+  `;
+  
+  console.log('Resetting refresh button state');
+  refreshBtn.disabled = false;
+  refreshBtn.innerHTML = originalContent;
+  refreshBtn.title = 'Refresh Schema';
+}
+
 async function loadDatabaseSchema() {
   if (!currentConnectionId) return;
   
+  const refreshBtn = document.getElementById('refreshSchemaBtn');
+  if (!refreshBtn) return;
+  
+  // Store original content if not already stored
+  if (!refreshBtn.dataset.originalContent) {
+    refreshBtn.dataset.originalContent = refreshBtn.innerHTML;
+  }
+  const originalContent = refreshBtn.dataset.originalContent;
+  
+  // If already loading, don't start another request
+  if (refreshBtn.disabled) return;
+  
   try {
+    // Show loading state
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<div class="loading"></div>';
+    refreshBtn.title = 'Refreshing...';
+    
     const result = await window.api.getDatabaseSchema(currentConnectionId);
     console.log('Database schema result:', result);
     
-    if (result.success) {
+    if (result && result.success) {
       currentSchema = result.schema;
       console.log('Current schema:', currentSchema);
       
@@ -1509,12 +1622,52 @@ async function loadDatabaseSchema() {
       }
       
       renderDatabaseTree(result.schema);
+      
+      showNotification('Database schema refreshed successfully', 'success');
     } else {
-      showNotification('Failed to load schema: ' + result.error, 'error');
+      const errorMsg = result ? result.error : 'Unknown error occurred';
+      showNotification('Failed to load schema: ' + errorMsg, 'error');
     }
   } catch (error) {
+    console.error('Error in loadDatabaseSchema:', error);
     showNotification('Error loading schema: ' + error.message, 'error');
+  } finally {
+    // Always restore button state
+    setTimeout(() => {
+      resetRefreshButton();
+    }, 100); // Small delay to ensure UI updates properly
   }
+}
+
+// Update tables and views directly from schema data (more efficient)
+function updateTablesAndViewsFromSchema(schema) {
+  if (!schema) {
+    currentTablesAndViews = [];
+    return;
+  }
+  
+  // Extract tables from schema
+  const tables = Object.values(schema.tables || {}).map(table => ({
+    name: table.name,
+    schema: table.schema,
+    fullName: `${table.schema}.${table.name}`,
+    columns: table.columns,
+    type: 'table'
+  }));
+  
+  // Extract views from schema
+  const views = Object.values(schema.views || {}).map(view => ({
+    name: view.name,
+    schema: view.schema,
+    fullName: `${view.schema}.${view.name}`,
+    definition: view.definition,
+    type: 'view'
+  }));
+  
+  // Combine tables and views
+  currentTablesAndViews = [...tables, ...views];
+  
+  console.log('Updated tables and views from schema:', currentTablesAndViews.length, 'items');
 }
 
 async function loadTablesAndViews() {
@@ -1541,6 +1694,10 @@ async function loadTablesAndViews() {
 
 function renderDatabaseTree(schema) {
   console.log('Rendering database tree with schema:', schema);
+  
+  // Update autocomplete data whenever the tree is rendered
+  updateTablesAndViewsFromSchema(schema);
+  
   dbTree.innerHTML = '';
   
   if (!schema || (Object.keys(schema.tables || {}).length === 0 && Object.keys(schema.views || {}).length === 0)) {
@@ -1619,6 +1776,26 @@ function renderDatabaseTree(schema) {
         tableName_span.style.flex = '1';
         tableName_span.style.cursor = 'pointer';
         
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.gap = '2px';
+        
+        const schemaBtn = document.createElement('button');
+        schemaBtn.className = 'btn-icon';
+        schemaBtn.title = 'View Table Schema';
+        schemaBtn.innerHTML = `
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M9 9h6v6H9z"/>
+            <path d="M9 3v6"/>
+            <path d="M21 9h-6"/>
+            <path d="M15 15v6"/>
+            <path d="M9 21h6"/>
+          </svg>
+        `;
+        schemaBtn.style.opacity = '0.6';
+        schemaBtn.style.padding = '2px 4px';
+        
         const downloadBtn = document.createElement('button');
         downloadBtn.className = 'btn-icon';
         downloadBtn.title = 'Download Table Data';
@@ -1632,6 +1809,11 @@ function renderDatabaseTree(schema) {
         downloadBtn.style.opacity = '0.6';
         downloadBtn.style.padding = '2px 4px';
         
+        schemaBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showTableSchema(schemaName, tableName, tableInfo);
+        });
+        
         downloadBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           downloadTableData(schemaName, tableName);
@@ -1641,8 +1823,11 @@ function renderDatabaseTree(schema) {
           selectTable(schemaName, tableName, tableInfo);
         });
         
+        buttonContainer.appendChild(schemaBtn);
+        buttonContainer.appendChild(downloadBtn);
+        
         tableContent.appendChild(tableName_span);
-        tableContent.appendChild(downloadBtn);
+        tableContent.appendChild(buttonContainer);
         tableEl.appendChild(tableContent);
         
         tablesChildren.appendChild(tableEl);
@@ -2890,7 +3075,19 @@ function startColumnResize(e, th, columnIndex) {
   isResizing = true;
   currentColumn = th;
   startX = e.clientX;
-  startWidth = th.offsetWidth;
+  
+  // Get the actual current width more accurately
+  const rect = th.getBoundingClientRect();
+  startWidth = rect.width;
+  
+  // Also check if there's a CSS width set and use that if it exists
+  const computedStyle = window.getComputedStyle(th);
+  const cssWidth = parseFloat(computedStyle.width);
+  if (cssWidth && cssWidth > 0) {
+    startWidth = cssWidth;
+  }
+  
+
   
   // Add visual feedback
   const table = th.closest('.results-table');
@@ -2904,6 +3101,7 @@ function startColumnResize(e, th, columnIndex) {
   
   // Prevent text selection during resize
   document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'col-resize';
 }
 
 function handleColumnResize(e) {
@@ -2912,11 +3110,12 @@ function handleColumnResize(e) {
   e.preventDefault();
   
   const deltaX = e.clientX - startX;
-  const newWidth = Math.max(80, startWidth + deltaX); // Minimum width of 80px
+  const newWidth = Math.max(50, startWidth + deltaX); // Minimum width of 50px
   
-  // Set the width on the header
-  currentColumn.style.width = newWidth + 'px';
-  currentColumn.style.minWidth = newWidth + 'px';
+  // Set the width on the header with important to override any table auto-sizing
+  currentColumn.style.setProperty('width', newWidth + 'px', 'important');
+  currentColumn.style.setProperty('min-width', newWidth + 'px', 'important');
+  currentColumn.style.setProperty('max-width', newWidth + 'px', 'important');
   
   // Find the column index and apply width to all cells in that column
   const columnIndex = parseInt(currentColumn.dataset.columnIndex);
@@ -2927,11 +3126,14 @@ function handleColumnResize(e) {
   rows.forEach(row => {
     const cell = row.children[columnIndex + 1]; // +1 because of line number column
     if (cell) {
-      cell.style.width = newWidth + 'px';
-      cell.style.minWidth = newWidth + 'px';
-      cell.style.maxWidth = newWidth + 'px';
+      cell.style.setProperty('width', newWidth + 'px', 'important');
+      cell.style.setProperty('min-width', newWidth + 'px', 'important');
+      cell.style.setProperty('max-width', newWidth + 'px', 'important');
     }
   });
+  
+  // Update the table layout to fixed to prevent auto-resizing
+  table.style.tableLayout = 'fixed';
 }
 
 function stopColumnResize(e) {
@@ -2955,8 +3157,9 @@ function stopColumnResize(e) {
   document.removeEventListener('mousemove', handleColumnResize);
   document.removeEventListener('mouseup', stopColumnResize);
   
-  // Restore text selection
+  // Restore text selection and cursor
   document.body.style.userSelect = '';
+  document.body.style.cursor = '';
 }
 
 function updateResultsInfo(visibleCount, totalCount) {
@@ -4940,7 +5143,8 @@ function showTableAutocomplete(searchTerm, cursorPos) {
     div.className = 'autocomplete-item';
     if (index === 0) div.classList.add('selected');
     div.dataset.index = index;
-    div.dataset.tableName = item.fullName;
+    // For public schema, use just the table name, otherwise use fullName
+    div.dataset.tableName = item.schema === 'public' ? item.name : item.fullName;
     
     const typeLabel = document.createElement('span');
     typeLabel.className = `autocomplete-item-type ${item.type}`;
@@ -4948,7 +5152,8 @@ function showTableAutocomplete(searchTerm, cursorPos) {
     
     const name = document.createElement('span');
     name.className = 'autocomplete-item-name';
-    name.textContent = item.fullName;
+    // Show just the table name without schema prefix for public schema
+    name.textContent = item.schema === 'public' ? item.name : item.fullName;
     
     div.appendChild(typeLabel);
     div.appendChild(name);
@@ -6036,6 +6241,227 @@ function closeCreateTableModal() {
   modal.classList.add('hidden');
 }
 
+// Create Table AI Generator Functions (Inline Approach)
+function showCreateTableAi() {
+  const promptBar = document.getElementById('createTableAiPrompt');
+  const promptInput = document.getElementById('createTableAiInput');
+  
+  promptBar.classList.remove('hidden');
+  promptInput.focus();
+}
+
+function hideCreateTableAi() {
+  const promptBar = document.getElementById('createTableAiPrompt');
+  const promptInput = document.getElementById('createTableAiInput');
+  
+  promptBar.classList.add('hidden');
+  promptInput.value = '';
+}
+
+async function generateCreateTableSQL() {
+  const prompt = document.getElementById('createTableAiInput').value.trim();
+  
+  if (!prompt) {
+    showNotification('Please describe the table you want to create', 'error');
+    return;
+  }
+  
+  const generateBtn = document.getElementById('generateTableSQLBtn');
+  const originalText = generateBtn.textContent;
+  
+  try {
+    // Show loading state
+    generateBtn.disabled = true;
+    generateBtn.textContent = 'Generating...';
+    
+    // Call AI service to generate SQL
+    const result = await generateTableSQL(prompt);
+    
+    if (result.success) {
+      // Populate the SQL textarea
+      const sqlTextarea = document.getElementById('sqlQuery');
+      if (sqlTextarea) {
+        sqlTextarea.value = result.sql;
+      }
+      
+      // Hide AI prompt
+      hideCreateTableAi();
+      
+      showNotification('SQL query generated successfully!', 'success');
+    } else {
+      showNotification(`Failed to generate SQL: ${result.error}`, 'error');
+    }
+  } catch (error) {
+    console.error('Error generating AI table:', error);
+    showNotification(`Error generating table: ${error.message}`, 'error');
+  } finally {
+    // Reset button state
+    generateBtn.disabled = false;
+    generateBtn.textContent = originalText;
+  }
+}
+
+async function generateTableSQL(prompt) {
+  try {
+    // Enhanced prompt for better SQL generation
+    const enhancedPrompt = `Generate a PostgreSQL CREATE TABLE statement based on this description: ${prompt}
+
+Please follow these guidelines:
+1. Use appropriate PostgreSQL data types (SERIAL, INTEGER, VARCHAR, TEXT, TIMESTAMP, BOOLEAN, etc.)
+2. Include PRIMARY KEY constraints where appropriate
+3. Add UNIQUE constraints for unique fields like email
+4. Use NOT NULL for required fields
+5. Add DEFAULT values where it makes sense (e.g., CURRENT_TIMESTAMP for created dates)
+6. Use descriptive column names in snake_case
+7. Only return the SQL statement, no explanation
+
+Example format:
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`;
+
+    const result = await window.api.generateSQL(enhancedPrompt, activeAI?.context?.schema || {}, activeAI?.connectionId);
+    
+    if (result.success) {
+      // Clean up the response to extract just the SQL
+      let sql = result.response.trim();
+      
+      // Remove any markdown code blocks
+      sql = sql.replace(/```sql\n?/g, '').replace(/```\n?/g, '');
+      
+      // Remove any explanatory text before or after the SQL
+      const createTableMatch = sql.match(/CREATE TABLE[\s\S]*?;/i);
+      if (createTableMatch) {
+        sql = createTableMatch[0];
+      }
+      
+      return {
+        success: true,
+        sql: sql
+      };
+    } else {
+      return {
+        success: false,
+        error: result.error || 'Failed to generate SQL'
+      };
+    }
+  } catch (error) {
+    console.error('Error in generateTableSQL:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+function showTableSchema(schemaName, tableName, tableInfo) {
+  const modal = document.getElementById('tableSchemaModal');
+  const title = document.getElementById('tableSchemaTitle');
+  const content = document.getElementById('tableSchemaContent');
+  
+  // Set title
+  const displayTableName = formatIdentifierForQuery(schemaName, tableName);
+  title.textContent = `Schema: ${displayTableName}`;
+  
+  // Build schema content
+  let schemaHTML = `
+    <div class="schema-info">
+      <div class="schema-header">
+        <h4>Table Information</h4>
+        <div class="schema-details">
+          <div><strong>Schema:</strong> ${schemaName}</div>
+          <div><strong>Table:</strong> ${tableName}</div>
+          <div><strong>Columns:</strong> ${tableInfo.columns.length}</div>
+        </div>
+      </div>
+      
+      <div class="schema-columns">
+        <h4>Columns</h4>
+        <div class="columns-table">
+          <div class="column-header">
+            <div class="col-name">Name</div>
+            <div class="col-type">Type</div>
+            <div class="col-nullable">Nullable</div>
+            <div class="col-default">Default</div>
+            <div class="col-key">Key</div>
+          </div>
+  `;
+  
+  // Sort columns by position
+  const sortedColumns = [...tableInfo.columns].sort((a, b) => a.position - b.position);
+  
+  for (const column of sortedColumns) {
+    const isPrimaryKey = column.primary_key || false;
+    const hasForeignKey = column.foreign_key || false;
+    const nullable = column.nullable ? 'Yes' : 'No';
+    const defaultValue = column.default || '-';
+    
+    let keyInfo = '';
+    if (isPrimaryKey) {
+      keyInfo = '<span class="key-badge primary">PK</span>';
+    }
+    if (hasForeignKey) {
+      keyInfo += '<span class="key-badge foreign">FK</span>';
+    }
+    if (!keyInfo) {
+      keyInfo = '-';
+    }
+    
+    schemaHTML += `
+      <div class="column-row">
+        <div class="col-name">${quoteIdentifier(column.name)}</div>
+        <div class="col-type">${column.type}</div>
+        <div class="col-nullable">${nullable}</div>
+        <div class="col-default">${defaultValue}</div>
+        <div class="col-key">${keyInfo}</div>
+      </div>
+    `;
+  }
+  
+  schemaHTML += `
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Add foreign key relationships if any
+  const foreignKeys = tableInfo.columns.filter(col => col.foreign_key);
+  if (foreignKeys.length > 0) {
+    schemaHTML += `
+      <div class="schema-relationships">
+        <h4>Foreign Key Relationships</h4>
+        <div class="relationships-list">
+    `;
+    
+    for (const fkColumn of foreignKeys) {
+      schemaHTML += `
+        <div class="relationship-item">
+          <strong>${quoteIdentifier(fkColumn.name)}</strong> → 
+          <span class="foreign-ref">${fkColumn.foreign_key.table}.${fkColumn.foreign_key.column}</span>
+        </div>
+      `;
+    }
+    
+    schemaHTML += `
+        </div>
+      </div>
+    `;
+  }
+  
+  content.innerHTML = schemaHTML;
+  modal.classList.remove('hidden');
+}
+
+function closeTableSchemaModal() {
+  const modal = document.getElementById('tableSchemaModal');
+  modal.classList.add('hidden');
+}
+
 function switchCreateTableTab(event) {
   const selectedTab = event.currentTarget.dataset.tab;
   
@@ -6236,7 +6662,7 @@ async function handleVisualTableCreation() {
     return;
   }
   
-  // Validate table name (basic validation)
+  // Validate table name (allow mixed case and more flexible naming)
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
     showNotification('Table name must start with a letter or underscore and contain only letters, numbers, and underscores', 'error');
     return;
@@ -6278,7 +6704,7 @@ async function handleVisualTableCreation() {
       return;
     }
     
-    // Validate column name
+    // Validate column name (allow mixed case)
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(columnName)) {
       showNotification(`Column name "${columnName}" is invalid. Must start with a letter or underscore and contain only letters, numbers, and underscores`, 'error');
       return;
@@ -6382,6 +6808,83 @@ function validateCreateTableSQL(sql) {
   }
   
   return true;
+}
+
+// Database Browser Resize Functionality
+function setupDatabaseBrowserResize() {
+  const dbBrowser = document.getElementById('dbBrowser');
+  const resizeHandle = document.getElementById('dbResizeHandle');
+  const databaseView = document.querySelector('.database-view');
+  
+  if (!dbBrowser || !resizeHandle || !databaseView) {
+    return;
+  }
+  
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+  
+  // Load saved width from localStorage
+  const savedWidth = localStorage.getItem('dbBrowserWidth');
+  if (savedWidth) {
+    const width = Math.max(200, Math.min(600, parseInt(savedWidth)));
+    dbBrowser.style.width = width + 'px';
+  }
+  
+  // Mouse down on resize handle
+  resizeHandle.addEventListener('mousedown', (e) => {
+    // Don't allow resizing if database browser is hidden
+    if (dbBrowser.classList.contains('hidden')) {
+      return;
+    }
+    
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = parseInt(document.defaultView.getComputedStyle(dbBrowser).width, 10);
+    
+    // Add visual feedback
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    resizeHandle.classList.add('active');
+    
+    // Prevent text selection during drag
+    e.preventDefault();
+  });
+  
+  // Mouse move - resize the panel
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    
+    const width = startWidth + e.clientX - startX;
+    const minWidth = 200;  // Minimum width
+    const maxWidth = 600;  // Maximum width
+    
+    if (width >= minWidth && width <= maxWidth) {
+      dbBrowser.style.width = width + 'px';
+    }
+  });
+  
+  // Mouse up - stop resizing
+  document.addEventListener('mouseup', () => {
+    if (!isResizing) return;
+    
+    isResizing = false;
+    
+    // Remove visual feedback
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    resizeHandle.classList.remove('active');
+    
+    // Save width to localStorage
+    const currentWidth = parseInt(document.defaultView.getComputedStyle(dbBrowser).width, 10);
+    localStorage.setItem('dbBrowserWidth', currentWidth);
+  });
+  
+  // Double-click to reset to default width
+  resizeHandle.addEventListener('dblclick', () => {
+    dbBrowser.style.width = '250px';
+    localStorage.setItem('dbBrowserWidth', '250');
+  });
 }
 
 // Make functions global so they can be called from HTML onclick handlers
