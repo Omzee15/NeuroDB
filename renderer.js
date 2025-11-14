@@ -359,6 +359,9 @@ let selectedRows = new Set();
 let selectedColumns = new Set();
 let lastSelectedCell = null;
 let isShiftSelecting = false;
+let isDraggingSelection = false;
+let dragStartCell = null;
+let dragCurrentCell = null;
 
 function clearAllSelections() {
   // Clear visual selections
@@ -2800,7 +2803,10 @@ function renderResultsTable(rows, fields) {
       });
       
       // Add selection event listeners
-      td.addEventListener('click', (e) => {
+      td.addEventListener('mousedown', (e) => {
+        // Don't interfere with text selection within the cell
+        if (e.detail > 1) return; // Ignore double/triple clicks
+        
         const isCtrlCmd = e.ctrlKey || e.metaKey;
         const isShift = e.shiftKey;
         
@@ -2811,11 +2817,44 @@ function renderResultsTable(rows, fields) {
           selectCellRange(lastSelectedCell.rowIndex, lastSelectedCell.colIndex, rowIndex, colIndex);
           isShiftSelecting = false;
         } else {
+          // Start drag selection
+          isDraggingSelection = true;
+          dragStartCell = { rowIndex, colIndex, td };
+          dragCurrentCell = { rowIndex, colIndex, td };
+          
+          if (!isCtrlCmd) {
+            clearAllSelections();
+          }
+          
           // Single cell or multi-selection
           selectCell(td, rowIndex, colIndex, isCtrlCmd);
         }
         
         e.preventDefault();
+      });
+      
+      td.addEventListener('mouseover', (e) => {
+        if (isDraggingSelection && dragStartCell) {
+          // Update drag selection
+          dragCurrentCell = { rowIndex, colIndex, td };
+          
+          // Clear and redraw selection
+          clearAllSelections();
+          selectCellRange(
+            dragStartCell.rowIndex,
+            dragStartCell.colIndex,
+            dragCurrentCell.rowIndex,
+            dragCurrentCell.colIndex
+          );
+        }
+      });
+      
+      td.addEventListener('mouseup', (e) => {
+        if (isDraggingSelection) {
+          isDraggingSelection = false;
+          dragStartCell = null;
+          dragCurrentCell = null;
+        }
       });
       
       tr.appendChild(td);
@@ -3376,31 +3415,98 @@ function toggleColumnVisibility(columnIndex, isVisible) {
 let selectionMode = null; // 'cell', 'row', 'column'
 let isSelecting = false;
 let selectionStart = null;
+let copyHandlerAttached = false;
+let mouseHandlersAttached = false;
 
 function setupCellSelection() {
-  // Just add the keyboard copy handler
-  // Mouse selection is already handled in the existing code
-  document.addEventListener('keydown', handleCopyShortcut);
+  console.log('setupCellSelection called');
+  
+  // Add keyboard copy handler only once
+  if (!copyHandlerAttached) {
+    console.log('Attaching copy handler');
+    document.addEventListener('keydown', handleCopyShortcut, true); // Use capture phase
+    
+    // Also add a test listener to see if ANY keydown is detected
+    document.addEventListener('keydown', (e) => {
+      console.log('Keydown detected:', e.key, 'Ctrl:', e.ctrlKey, 'Meta:', e.metaKey);
+    }, true);
+    
+    copyHandlerAttached = true;
+  }
+  
+  // Add mouse handlers only once
+  if (!mouseHandlersAttached) {
+    console.log('Attaching mouse handlers');
+    
+    // Add global mouseup handler to end drag selection
+    document.addEventListener('mouseup', (e) => {
+      if (isDraggingSelection) {
+        isDraggingSelection = false;
+        dragStartCell = null;
+        dragCurrentCell = null;
+        
+        // Re-enable text selection
+        document.body.style.userSelect = '';
+        document.body.style.webkitUserSelect = '';
+        document.body.style.mozUserSelect = '';
+        document.body.style.msUserSelect = '';
+      }
+    });
+    
+    // Add global mousemove handler to prevent text selection during drag
+    document.addEventListener('mousemove', (e) => {
+      if (isDraggingSelection) {
+        // Prevent text selection during drag
+        document.body.style.userSelect = 'none';
+        document.body.style.webkitUserSelect = 'none';
+        document.body.style.mozUserSelect = 'none';
+        document.body.style.msUserSelect = 'none';
+      }
+    });
+    
+    mouseHandlersAttached = true;
+  }
 }
 
 function handleCopyShortcut(e) {
+  console.log('handleCopyShortcut called');
+  
   // Check for Ctrl+C (Windows/Linux) or Cmd+C (Mac)
   if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+    console.log('Ctrl+C detected!');
+    
     // Don't interfere if user is in an input field
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      console.log('Ignoring - target is input field');
       return;
     }
+    
+    console.log('Copy shortcut detected');
+    console.log('Selected cells:', selectedCells.size);
+    console.log('Selected rows:', selectedRows.size);
+    console.log('Selected columns:', selectedColumns.size);
+    console.log('Cell keys:', Array.from(selectedCells));
     
     if (selectedCells.size > 0 || selectedRows.size > 0 || selectedColumns.size > 0) {
       e.preventDefault();
       copySelectedCells();
+    } else {
+      console.log('No cells selected');
     }
   }
 }
 
 function copySelectedCells() {
   const table = document.querySelector('.results-table');
-  if (!table) return;
+  if (!table) {
+    console.log('No table found');
+    return;
+  }
+  
+  console.log('Starting copy process...');
+  console.log('Selected cells:', selectedCells);
+  console.log('Selected rows:', selectedRows);
+  console.log('Selected columns:', selectedColumns);
   
   let textToCopy = '';
   let copiedCount = 0;
@@ -3412,7 +3518,10 @@ function copySelectedCells() {
       const row = table.querySelector(`tbody tr:nth-child(${rowIndex + 1})`);
       if (row) {
         const cells = Array.from(row.cells).slice(1); // Skip line number
-        const rowText = cells.map(cell => cell.textContent.trim()).join('\t');
+        const rowText = cells.map(cell => {
+          // Use dataset.fullValue if available, otherwise textContent
+          return cell.dataset.fullValue || cell.textContent.trim();
+        }).join('\t');
         textToCopy += rowText;
         if (index < rowsArray.length - 1) {
           textToCopy += '\n';
@@ -3429,7 +3538,8 @@ function copySelectedCells() {
     rows.forEach((row, rowIndex) => {
       const rowText = columnsArray.map(colIndex => {
         const cell = row.cells[colIndex + 1]; // +1 for line number
-        return cell ? cell.textContent.trim() : '';
+        // Use dataset.fullValue if available, otherwise textContent
+        return cell ? (cell.dataset.fullValue || cell.textContent.trim()) : '';
       }).join('\t');
       textToCopy += rowText;
       if (rowIndex < rows.length - 1) {
@@ -3439,9 +3549,10 @@ function copySelectedCells() {
     copiedCount = selectedColumns.size;
     
   } else if (selectedCells.size > 0) {
-    // Copy selected cells
-    // Parse cell keys and organize by row
+    // Copy selected cells using dataset attributes for accurate cell lookup
     const cellsByRow = new Map();
+    
+    // Organize cells by row
     selectedCells.forEach(cellKey => {
       const [rowIndex, colIndex] = cellKey.split('-').map(Number);
       if (!cellsByRow.has(rowIndex)) {
@@ -3450,25 +3561,34 @@ function copySelectedCells() {
       cellsByRow.get(rowIndex).push(colIndex);
     });
     
-    // Sort rows
+    // Sort rows and columns
     const sortedRows = Array.from(cellsByRow.keys()).sort((a, b) => a - b);
     sortedRows.forEach((rowIndex, index) => {
       const colIndices = cellsByRow.get(rowIndex).sort((a, b) => a - b);
-      const row = table.querySelector(`tbody tr:nth-child(${rowIndex + 1})`);
       
-      if (row) {
-        const rowText = colIndices.map(colIndex => {
-          const cell = row.cells[colIndex + 1]; // +1 for line number
-          return cell ? cell.textContent.trim() : '';
-        }).join('\t');
-        textToCopy += rowText;
-        if (index < sortedRows.length - 1) {
-          textToCopy += '\n';
+      const rowText = colIndices.map(colIndex => {
+        // Find the cell using dataset attributes instead of position
+        const cell = table.querySelector(
+          `tbody tr:nth-child(${rowIndex + 1}) td[data-row-index="${rowIndex}"][data-column-index="${colIndex}"]`
+        );
+        
+        if (cell) {
+          // Use dataset.fullValue for complete untruncated content
+          return cell.dataset.fullValue || cell.textContent.trim();
         }
+        return '';
+      }).join('\t');
+      
+      textToCopy += rowText;
+      if (index < sortedRows.length - 1) {
+        textToCopy += '\n';
       }
     });
     copiedCount = selectedCells.size;
   }
+  
+  console.log('Text to copy:', textToCopy);
+  console.log('Copied count:', copiedCount);
   
   // Copy to clipboard
   if (textToCopy) {
@@ -3480,6 +3600,8 @@ function copySelectedCells() {
       console.error('Failed to copy:', err);
       showNotification('Failed to copy to clipboard', 'error');
     });
+  } else {
+    console.log('Nothing to copy - textToCopy is empty');
   }
 }
 

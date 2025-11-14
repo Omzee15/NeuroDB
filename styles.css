@@ -1807,6 +1807,10 @@ body.platform-linux .window-controls {
   position: relative;
 }
 
+.results-table td:active {
+  cursor: crosshair;
+}
+
 .results-table td.selected-cell {
   background: rgba(78, 201, 176, 0.2) !important;
   outline: 2px solid var(--accent-primary);
