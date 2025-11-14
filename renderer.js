@@ -2978,7 +2978,20 @@ function performSearch() {
     let shouldShow = false;
     
     if (!searchTerm) {
+      // No search term - show all rows and clear all filter highlights
       shouldShow = true;
+      // Clear filter highlights from all cells
+      for (let i = 1; i < cells.length; i++) {
+        removeHighlight(cells[i]);
+      }
+      
+      // Reapply independent highlight search if it exists
+      const highlightInput = document.getElementById('highlightInput');
+      if (highlightInput && highlightInput.value.trim()) {
+        for (let i = 1; i < cells.length; i++) {
+          highlightSearchTerm(cells[i], highlightInput.value.trim());
+        }
+      }
     } else {
       // Skip the first cell (line number)
       for (let i = 1; i < cells.length; i++) {
