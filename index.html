@@ -212,12 +212,28 @@
                     <path d="M3 6l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none"/>
                   </svg>
                 </button>
-                <input 
-                  type="text" 
-                  id="aiPrompt" 
-                  placeholder="🤖 Ask AI to generate SQL... (e.g., 'Show all users created this month')"
-                  class="ai-input"
-                />
+                <div class="ai-input-wrapper">
+                  <input 
+                    type="text" 
+                    id="aiPrompt" 
+                    placeholder="🤖 Ask AI to generate SQL... (e.g., 'Show all users created this month')"
+                    class="ai-input"
+                  />
+                  <button class="btn-icon ai-history-btn" id="aiHistoryBtn" title="Prompt History">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M8 3.5A4.5 4.5 0 1 0 12.5 8H11a3.5 3.5 0 1 1-1.05-2.5l-.725.725A.5.5 0 0 0 9.5 7H13V3.5a.5.5 0 0 0-.854-.354L11.5 3.793A4.5 4.5 0 0 0 8 3.5z"/>
+                    </svg>
+                  </button>
+                  <div class="ai-history-dropdown hidden" id="aiHistoryDropdown">
+                    <div class="ai-history-header">Recent Prompts</div>
+                    <div class="ai-history-list" id="aiHistoryList">
+                      <div class="ai-history-empty">No prompt history yet</div>
+                    </div>
+                    <div class="ai-history-footer">
+                      <button class="btn-text" id="clearAiHistory">Clear History</button>
+                    </div>
+                  </div>
+                </div>
                 <button class="btn-primary" id="generateSQLBtn">Generate</button>
               </div>
 
@@ -350,22 +366,12 @@
                         <option value="">All Columns</option>
                       </select>
                       <input type="text" id="searchInput" class="search-input" placeholder="Filter results..." />
-                      <button id="clearSearchBtn" class="clear-search-btn" title="Clear filter">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M18 6L6 18M6 6l12 12"/>
-                        </svg>
-                      </button>
                     </div>
 
                     <!-- Highlight Search (highlights matching text) -->
                     <div class="search-group">
                       <label class="search-label">Highlight:</label>
                       <input type="text" id="highlightInput" class="search-input highlight-input" placeholder="Highlight text..." />
-                      <button id="clearHighlightBtn" class="clear-search-btn" title="Clear highlights">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M18 6L6 18M6 6l12 12"/>
-                        </svg>
-                      </button>
                     </div>
                     
                     <!-- Sort Controls in same row -->
@@ -376,11 +382,23 @@
                       <option value="asc">↑ Ascending</option>
                       <option value="desc">↓ Descending</option>
                     </select>
-                    <button id="clearSortBtn" class="clear-sort-btn" title="Clear sort">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 6h18M7 12h10m-7 6h4"/>
-                      </svg>
-                    </button>
+                    
+                    <!-- Show/Hide Columns Dropdown -->
+                    <div class="columns-visibility-dropdown">
+                      <button class="btn-secondary columns-visibility-btn" id="columnsVisibilityBtn" title="Show/Hide Columns">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                          <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        Show/Hide
+                      </button>
+                      <div class="columns-visibility-menu hidden" id="columnsVisibilityMenu">
+                        <div class="columns-visibility-header">Column Visibility</div>
+                        <div class="columns-visibility-list" id="columnsVisibilityList">
+                          <!-- Checkboxes will be populated dynamically -->
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   <div class="export-dropdown-container disabled" id="exportButtons">
                     <button class="export-dropdown-btn" id="exportDropdownBtn" title="Export results" disabled>
@@ -812,9 +830,9 @@
 
 <!-- Query History Modal -->
 <div class="modal hidden" id="queryHistoryModal">
-  <div class="modal-content" style="max-width: 800px; max-height: 600px;">
+  <div class="modal-content" style="max-width: 900px; max-height: 80vh;">
     <div class="modal-header">
-      <h3>Query History</h3>
+      <h2>Query History</h2>
       <button class="btn-icon" onclick="closeQueryHistoryModal()">
         <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
           <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
@@ -822,9 +840,9 @@
       </button>
     </div>
     
-    <div class="modal-body">
-      <div class="query-history-search">
-        <input type="text" id="historySearchInput" placeholder="Search queries..." class="search-input" />
+    <div class="query-history-body">
+      <div class="query-history-search-section">
+        <input type="text" id="historySearchInput" placeholder="Search queries..." class="form-group input" />
       </div>
       <div class="query-history-list" id="queryHistoryList">
         <div class="no-results" style="text-align: center; padding: 40px; color: var(--text-secondary);">
@@ -833,9 +851,11 @@
       </div>
     </div>
     
-    <div class="modal-footer">
-      <button class="btn-secondary" onclick="clearQueryHistory()" style="margin-right: auto;">Clear History</button>
-      <button class="btn-secondary" onclick="closeQueryHistoryModal()">Close</button>
+    <div class="form-actions">
+      <button class="btn-secondary" onclick="clearQueryHistory()">Clear History</button>
+      <div class="form-actions-right">
+        <button class="btn-secondary" onclick="closeQueryHistoryModal()">Close</button>
+      </div>
     </div>
   </div>
 </div>

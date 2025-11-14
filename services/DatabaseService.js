@@ -601,6 +601,51 @@ class DatabaseService {
         }
       }
 
+      // Get indexes
+      console.log('Fetching indexes...');
+      const indexesQuery = 'SELECT ' +
+        'n.nspname as schema_name, ' +
+        'c.relname as table_name, ' +
+        'i.relname as index_name, ' +
+        'a.attname as column_name, ' +
+        'am.amname as index_type, ' +
+        'ix.indisunique as is_unique, ' +
+        'ix.indisprimary as is_primary ' +
+        'FROM pg_catalog.pg_index ix ' +
+        'JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid ' +
+        'JOIN pg_catalog.pg_class c ON c.oid = ix.indrelid ' +
+        'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace ' +
+        'JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(ix.indkey) ' +
+        'JOIN pg_catalog.pg_am am ON am.oid = i.relam ' +
+        "WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+        "AND n.nspname NOT LIKE 'pg_%' " +
+        "AND n.nspname NOT LIKE '_timescaledb%' " +
+        "AND n.nspname NOT LIKE 'timescaledb_%' " +
+        'ORDER BY n.nspname, c.relname, i.relname';
+      
+      const indexesResult = await pool.query(indexesQuery);
+      
+      // Add index information to columns
+      for (const row of indexesResult.rows) {
+        const fullTableName = `${row.schema_name}.${row.table_name}`;
+        if (schemaInfo.tables[fullTableName]) {
+          const column = schemaInfo.tables[fullTableName].columns.find(col => col.name === row.column_name);
+          if (column) {
+            if (!column.indexes) {
+              column.indexes = [];
+            }
+            // Skip primary key indexes as they're already marked
+            if (!row.is_primary) {
+              column.indexes.push({
+                name: row.index_name,
+                type: row.index_type,
+                unique: row.is_unique
+              });
+            }
+          }
+        }
+      }
+
       // Get views
       console.log('Fetching views...');
       const viewsQuery = 'SELECT ' +

@@ -168,6 +168,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => {
       updateContainerHeights();
     }, 100);
+    
+    // Initialize AI prompt history
+    setupAIHistory();
   } catch (error) {
     console.error('Error initializing app:', error);
     showNotification('Error initializing application', 'error');
@@ -2867,12 +2870,10 @@ function setupSearchControls() {
   const searchContainer = document.getElementById('resultsSearch');
   const columnSelect = document.getElementById('searchColumnSelect');
   const searchInput = document.getElementById('searchInput');
-  const clearBtn = document.getElementById('clearSearchBtn');
   
   // Sort controls
   const sortColumnSelect = document.getElementById('sortColumnSelect');
   const sortOrderSelect = document.getElementById('sortOrderSelect');
-  const clearSortBtn = document.getElementById('clearSortBtn');
   
   // Show search controls
   searchContainer.style.display = 'flex';
@@ -2902,16 +2903,12 @@ function setupSearchControls() {
   const newSearchInput = document.getElementById('searchInput');
   columnSelect.replaceWith(columnSelect.cloneNode(true));
   const newColumnSelect = document.getElementById('searchColumnSelect');
-  clearBtn.replaceWith(clearBtn.cloneNode(true));
-  const newClearBtn = document.getElementById('clearSearchBtn');
   
   // Clear previous event listeners for sort controls
   sortColumnSelect.replaceWith(sortColumnSelect.cloneNode(true));
   const newSortColumnSelect = document.getElementById('sortColumnSelect');
   sortOrderSelect.replaceWith(sortOrderSelect.cloneNode(true));
   const newSortOrderSelect = document.getElementById('sortOrderSelect');
-  clearSortBtn.replaceWith(clearSortBtn.cloneNode(true));
-  const newClearSortBtn = document.getElementById('clearSortBtn');
   
   // Re-populate column dropdowns after cloning
   newColumnSelect.innerHTML = '<option value="">All Columns</option>';
@@ -2936,26 +2933,32 @@ function setupSearchControls() {
   // Add search event listeners
   newSearchInput.addEventListener('input', performSearch);
   newColumnSelect.addEventListener('change', performSearch);
-  newClearBtn.addEventListener('click', clearSearch);
   
   // Add sort event listeners
   newSortColumnSelect.addEventListener('change', performSort);
   newSortOrderSelect.addEventListener('change', performSort);
-  newClearSortBtn.addEventListener('click', clearSort);
   
   // Add highlight event listeners
   const highlightInput = document.getElementById('highlightInput');
-  const clearHighlightBtn = document.getElementById('clearHighlightBtn');
   
-  if (highlightInput && clearHighlightBtn) {
-    highlightInput.addEventListener('input', performHighlight);
-    clearHighlightBtn.addEventListener('click', clearHighlight);
+  if (highlightInput) {
+    // Clone to remove old listeners
+    highlightInput.replaceWith(highlightInput.cloneNode(true));
+    const newHighlightInput = document.getElementById('highlightInput');
+    
+    newHighlightInput.addEventListener('input', performHighlight);
     
     // If there's already a highlight term, apply it to the new results
-    if (highlightInput.value.trim()) {
+    if (newHighlightInput.value.trim()) {
       performHighlight();
     }
   }
+  
+  // Setup column visibility dropdown
+  setupColumnVisibility();
+  
+  // Setup cell selection
+  setupCellSelection();
 }
 
 function performSearch() {
@@ -3255,6 +3258,215 @@ function clearSort() {
     const resultsTableContainer = document.getElementById('resultsTableContainer');
     resultsTableContainer.innerHTML = '';
     renderResultsTable(window.currentQueryResults, window.currentQueryFields);
+  }
+}
+
+// Column Visibility Functions
+let hiddenColumns = new Set();
+
+function setupColumnVisibility() {
+  const btn = document.getElementById('columnsVisibilityBtn');
+  const menu = document.getElementById('columnsVisibilityMenu');
+  const list = document.getElementById('columnsVisibilityList');
+  
+  if (!btn || !menu || !list) return;
+  
+  // Clear any existing content
+  list.innerHTML = '';
+  hiddenColumns.clear();
+  
+  // Populate with current columns
+  if (window.currentQueryFields && window.currentQueryFields.length > 0) {
+    window.currentQueryFields.forEach((fieldName, index) => {
+      const item = document.createElement('div');
+      item.className = 'column-visibility-item';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'column-visibility-checkbox';
+      checkbox.id = `col-vis-${index}`;
+      checkbox.checked = true;
+      checkbox.dataset.columnIndex = index;
+      checkbox.dataset.columnName = fieldName;
+      
+      const label = document.createElement('label');
+      label.className = 'column-visibility-label';
+      label.htmlFor = `col-vis-${index}`;
+      label.textContent = fieldName;
+      
+      checkbox.addEventListener('change', () => {
+        toggleColumnVisibility(index, checkbox.checked);
+      });
+      
+      item.addEventListener('click', (e) => {
+        if (e.target !== checkbox) {
+          checkbox.checked = !checkbox.checked;
+          toggleColumnVisibility(index, checkbox.checked);
+        }
+      });
+      
+      item.appendChild(checkbox);
+      item.appendChild(label);
+      list.appendChild(item);
+    });
+  }
+  
+  // Toggle menu visibility
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.classList.toggle('hidden');
+  });
+  
+  // Close menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!menu.contains(e.target) && e.target !== btn) {
+      menu.classList.add('hidden');
+    }
+  });
+  
+  // Prevent menu from closing when clicking inside
+  menu.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+}
+
+function toggleColumnVisibility(columnIndex, isVisible) {
+  const table = document.querySelector('.results-table');
+  if (!table) return;
+  
+  // Column index + 1 to account for line number column
+  const actualIndex = columnIndex + 1;
+  
+  if (isVisible) {
+    hiddenColumns.delete(columnIndex);
+  } else {
+    hiddenColumns.add(columnIndex);
+  }
+  
+  // Toggle header visibility
+  const header = table.querySelector(`thead th:nth-child(${actualIndex + 1})`);
+  if (header) {
+    header.style.display = isVisible ? '' : 'none';
+  }
+  
+  // Toggle cell visibility for all rows
+  const rows = table.querySelectorAll('tbody tr');
+  rows.forEach(row => {
+    const cell = row.querySelector(`td:nth-child(${actualIndex + 1})`);
+    if (cell) {
+      cell.style.display = isVisible ? '' : 'none';
+    }
+  });
+}
+
+// Cell Selection Functions
+let selectionMode = null; // 'cell', 'row', 'column'
+let isSelecting = false;
+let selectionStart = null;
+
+function setupCellSelection() {
+  // Just add the keyboard copy handler
+  // Mouse selection is already handled in the existing code
+  document.addEventListener('keydown', handleCopyShortcut);
+}
+
+function handleCopyShortcut(e) {
+  // Check for Ctrl+C (Windows/Linux) or Cmd+C (Mac)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+    // Don't interfere if user is in an input field
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      return;
+    }
+    
+    if (selectedCells.size > 0 || selectedRows.size > 0 || selectedColumns.size > 0) {
+      e.preventDefault();
+      copySelectedCells();
+    }
+  }
+}
+
+function copySelectedCells() {
+  const table = document.querySelector('.results-table');
+  if (!table) return;
+  
+  let textToCopy = '';
+  let copiedCount = 0;
+  
+  if (selectedRows.size > 0) {
+    // Copy entire row(s)
+    const rowsArray = Array.from(selectedRows).sort((a, b) => a - b);
+    rowsArray.forEach((rowIndex, index) => {
+      const row = table.querySelector(`tbody tr:nth-child(${rowIndex + 1})`);
+      if (row) {
+        const cells = Array.from(row.cells).slice(1); // Skip line number
+        const rowText = cells.map(cell => cell.textContent.trim()).join('\t');
+        textToCopy += rowText;
+        if (index < rowsArray.length - 1) {
+          textToCopy += '\n';
+        }
+      }
+    });
+    copiedCount = selectedRows.size;
+    
+  } else if (selectedColumns.size > 0) {
+    // Copy entire column(s)
+    const columnsArray = Array.from(selectedColumns).sort((a, b) => a - b);
+    const rows = table.querySelectorAll('tbody tr');
+    
+    rows.forEach((row, rowIndex) => {
+      const rowText = columnsArray.map(colIndex => {
+        const cell = row.cells[colIndex + 1]; // +1 for line number
+        return cell ? cell.textContent.trim() : '';
+      }).join('\t');
+      textToCopy += rowText;
+      if (rowIndex < rows.length - 1) {
+        textToCopy += '\n';
+      }
+    });
+    copiedCount = selectedColumns.size;
+    
+  } else if (selectedCells.size > 0) {
+    // Copy selected cells
+    // Parse cell keys and organize by row
+    const cellsByRow = new Map();
+    selectedCells.forEach(cellKey => {
+      const [rowIndex, colIndex] = cellKey.split('-').map(Number);
+      if (!cellsByRow.has(rowIndex)) {
+        cellsByRow.set(rowIndex, []);
+      }
+      cellsByRow.get(rowIndex).push(colIndex);
+    });
+    
+    // Sort rows
+    const sortedRows = Array.from(cellsByRow.keys()).sort((a, b) => a - b);
+    sortedRows.forEach((rowIndex, index) => {
+      const colIndices = cellsByRow.get(rowIndex).sort((a, b) => a - b);
+      const row = table.querySelector(`tbody tr:nth-child(${rowIndex + 1})`);
+      
+      if (row) {
+        const rowText = colIndices.map(colIndex => {
+          const cell = row.cells[colIndex + 1]; // +1 for line number
+          return cell ? cell.textContent.trim() : '';
+        }).join('\t');
+        textToCopy += rowText;
+        if (index < sortedRows.length - 1) {
+          textToCopy += '\n';
+        }
+      }
+    });
+    copiedCount = selectedCells.size;
+  }
+  
+  // Copy to clipboard
+  if (textToCopy) {
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      const type = selectedRows.size > 0 ? 'row' : selectedColumns.size > 0 ? 'column' : 'cell';
+      const plural = copiedCount > 1 ? 's' : '';
+      showNotification(`Copied ${copiedCount} ${type}${plural} to clipboard`, 'success');
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+      showNotification('Failed to copy to clipboard', 'error');
+    });
   }
 }
 
@@ -3634,6 +3846,139 @@ window.downloadDatabaseBackup = downloadDatabaseBackup;
 window.downloadTableData = downloadTableData;
 
 // AI Operations
+
+// AI Prompt History Management
+const AI_HISTORY_KEY = 'ai_prompt_history';
+const MAX_HISTORY_ITEMS = 20;
+
+function savePromptToHistory(prompt) {
+  if (!prompt || !prompt.trim()) return;
+  
+  try {
+    let history = JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || '[]');
+    
+    // Check if prompt already exists, remove old instance
+    history = history.filter(item => item.prompt !== prompt);
+    
+    // Add new prompt to the beginning
+    history.unshift({
+      prompt: prompt,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Keep only max items
+    history = history.slice(0, MAX_HISTORY_ITEMS);
+    
+    localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history));
+    updateAIHistoryDropdown();
+  } catch (error) {
+    console.error('Error saving prompt history:', error);
+  }
+}
+
+function getPromptHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || '[]');
+  } catch (error) {
+    console.error('Error loading prompt history:', error);
+    return [];
+  }
+}
+
+function clearPromptHistory() {
+  localStorage.removeItem(AI_HISTORY_KEY);
+  updateAIHistoryDropdown();
+  showNotification('Prompt history cleared', 'success');
+}
+
+function updateAIHistoryDropdown() {
+  const historyList = document.getElementById('aiHistoryList');
+  if (!historyList) return;
+  
+  const history = getPromptHistory();
+  
+  if (history.length === 0) {
+    historyList.innerHTML = '<div class="ai-history-empty">No prompt history yet</div>';
+    return;
+  }
+  
+  historyList.innerHTML = history.map((item, index) => {
+    const date = new Date(item.timestamp);
+    const timeStr = date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    return `
+      <div class="ai-history-item" data-index="${index}">
+        <div class="ai-history-prompt">${escapeHtml(item.prompt)}</div>
+        <div class="ai-history-time">${timeStr}</div>
+      </div>
+    `;
+  }).join('');
+  
+  // Add click listeners
+  historyList.querySelectorAll('.ai-history-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const index = parseInt(item.dataset.index);
+      const history = getPromptHistory();
+      if (history[index]) {
+        document.getElementById('aiPrompt').value = history[index].prompt;
+        document.getElementById('aiHistoryDropdown').classList.add('hidden');
+      }
+    });
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Setup AI History Dropdown
+function setupAIHistory() {
+  const aiHistoryBtn = document.getElementById('aiHistoryBtn');
+  const aiHistoryDropdown = document.getElementById('aiHistoryDropdown');
+  const clearHistoryBtn = document.getElementById('clearAiHistory');
+  
+  if (!aiHistoryBtn || !aiHistoryDropdown) return;
+  
+  // Toggle dropdown
+  aiHistoryBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isHidden = aiHistoryDropdown.classList.contains('hidden');
+    if (isHidden) {
+      updateAIHistoryDropdown();
+      aiHistoryDropdown.classList.remove('hidden');
+    } else {
+      aiHistoryDropdown.classList.add('hidden');
+    }
+  });
+  
+  // Clear history button
+  if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearPromptHistory();
+    });
+  }
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!aiHistoryDropdown.contains(e.target) && e.target !== aiHistoryBtn) {
+      aiHistoryDropdown.classList.add('hidden');
+    }
+  });
+  
+  // Prevent dropdown from closing when clicking inside
+  aiHistoryDropdown.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+}
+
 async function generateSQL() {
   const prompt = aiPrompt.value.trim();
   
@@ -3648,6 +3993,9 @@ async function generateSQL() {
     showNotification('Please connect to a database first', 'error');
     return;
   }
+  
+  // Save prompt to history
+  savePromptToHistory(prompt);
   
   showNotification('Generating SQL...', 'info');
   queryEditor.value = '-- Generating...';
@@ -6580,9 +6928,18 @@ function showTableSchema(schemaName, tableName, tableInfo) {
       <div class="schema-header">
         <h4>Table Information</h4>
         <div class="schema-details">
-          <div><strong>Schema:</strong> ${schemaName}</div>
-          <div><strong>Table:</strong> ${tableName}</div>
-          <div><strong>Columns:</strong> ${tableInfo.columns.length}</div>
+          <div class="schema-detail-item">
+            <span class="detail-label">Schema:</span> 
+            <span class="detail-value">${schemaName}</span>
+          </div>
+          <div class="schema-detail-item">
+            <span class="detail-label">Table:</span> 
+            <span class="detail-value">${tableName}</span>
+          </div>
+          <div class="schema-detail-item">
+            <span class="detail-label">Columns:</span> 
+            <span class="detail-value">${tableInfo.columns.length}</span>
+          </div>
         </div>
       </div>
       
@@ -6594,7 +6951,7 @@ function showTableSchema(schemaName, tableName, tableInfo) {
             <div class="col-type">Type</div>
             <div class="col-nullable">Nullable</div>
             <div class="col-default">Default</div>
-            <div class="col-key">Key</div>
+            <div class="col-constraints">Constraints</div>
           </div>
   `;
   
@@ -6604,18 +6961,29 @@ function showTableSchema(schemaName, tableName, tableInfo) {
   for (const column of sortedColumns) {
     const isPrimaryKey = column.primary_key || false;
     const hasForeignKey = column.foreign_key || false;
+    const hasIndexes = column.indexes && column.indexes.length > 0;
     const nullable = column.nullable ? 'Yes' : 'No';
     const defaultValue = column.default || '-';
     
-    let keyInfo = '';
+    let constraintsInfo = '';
     if (isPrimaryKey) {
-      keyInfo = '<span class="key-badge primary">PK</span>';
+      constraintsInfo += '<span class="key-badge primary" title="Primary Key">PK</span>';
     }
     if (hasForeignKey) {
-      keyInfo += '<span class="key-badge foreign">FK</span>';
+      constraintsInfo += '<span class="key-badge foreign" title="Foreign Key">FK</span>';
     }
-    if (!keyInfo) {
-      keyInfo = '-';
+    if (hasIndexes) {
+      const uniqueIndexes = column.indexes.filter(idx => idx.unique).length;
+      const regularIndexes = column.indexes.filter(idx => !idx.unique).length;
+      if (uniqueIndexes > 0) {
+        constraintsInfo += `<span class="key-badge unique" title="${uniqueIndexes} Unique Index${uniqueIndexes > 1 ? 'es' : ''}">U</span>`;
+      }
+      if (regularIndexes > 0) {
+        constraintsInfo += `<span class="key-badge index" title="${regularIndexes} Index${regularIndexes > 1 ? 'es' : ''}">I</span>`;
+      }
+    }
+    if (!constraintsInfo) {
+      constraintsInfo = '-';
     }
     
     schemaHTML += `
@@ -6624,7 +6992,7 @@ function showTableSchema(schemaName, tableName, tableInfo) {
         <div class="col-type">${column.type}</div>
         <div class="col-nullable">${nullable}</div>
         <div class="col-default">${defaultValue}</div>
-        <div class="col-key">${keyInfo}</div>
+        <div class="col-constraints">${constraintsInfo}</div>
       </div>
     `;
   }
@@ -6647,10 +7015,42 @@ function showTableSchema(schemaName, tableName, tableInfo) {
     for (const fkColumn of foreignKeys) {
       schemaHTML += `
         <div class="relationship-item">
-          <strong>${quoteIdentifier(fkColumn.name)}</strong> → 
+          <span class="relationship-column">${quoteIdentifier(fkColumn.name)}</span>
+          <span class="relationship-arrow">→</span>
           <span class="foreign-ref">${fkColumn.foreign_key.table}.${fkColumn.foreign_key.column}</span>
         </div>
       `;
+    }
+    
+    schemaHTML += `
+        </div>
+      </div>
+    `;
+  }
+  
+  // Add index information if any columns have indexes
+  const columnsWithIndexes = tableInfo.columns.filter(col => col.indexes && col.indexes.length > 0);
+  if (columnsWithIndexes.length > 0) {
+    schemaHTML += `
+      <div class="schema-indexes">
+        <h4>Indexes</h4>
+        <div class="indexes-list">
+    `;
+    
+    for (const column of columnsWithIndexes) {
+      for (const index of column.indexes) {
+        const indexType = index.unique ? 'Unique Index' : 'Index';
+        schemaHTML += `
+          <div class="index-item">
+            <span class="index-name">${index.name}</span>
+            <span class="index-details">
+              <span class="index-type-badge ${index.unique ? 'unique' : ''}">${indexType}</span>
+              <span class="index-column">on ${quoteIdentifier(column.name)}</span>
+              <span class="index-method">(${index.type})</span>
+            </span>
+          </div>
+        `;
+      }
     }
     
     schemaHTML += `

@@ -951,9 +951,16 @@ body.platform-linux .window-controls {
   transform: rotate(90deg);
 }
 
+.ai-input-wrapper {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .ai-input {
   flex: 1;
-  padding: 10px 15px;
+  padding: 10px 45px 10px 15px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -965,6 +972,120 @@ body.platform-linux .window-controls {
 
 .ai-input:focus {
   border-color: var(--accent-primary);
+}
+
+.ai-history-btn {
+  position: absolute;
+  right: 8px;
+  padding: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 2;
+}
+
+.ai-history-btn:hover {
+  color: var(--accent-primary);
+  background: var(--bg-hover);
+  border-radius: 4px;
+}
+
+.ai-history-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 400px;
+  max-height: 500px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ai-history-header {
+  padding: 14px 16px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ai-history-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.ai-history-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.ai-history-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-history-item:hover {
+  background: var(--bg-hover);
+}
+
+.ai-history-item:last-child {
+  border-bottom: none;
+}
+
+.ai-history-prompt {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ai-history-time {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ai-history-footer {
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-text {
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-text:hover {
+  color: var(--accent-primary);
+  background: var(--bg-hover);
 }
 
 /* Where Clause Builder */
@@ -1594,6 +1715,120 @@ body.platform-linux .window-controls {
 .sort-order-select:focus {
   outline: none;
   border-color: var(--accent-primary);
+}
+
+/* Column Visibility Dropdown */
+.columns-visibility-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.columns-visibility-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  height: auto;
+  white-space: nowrap;
+}
+
+.columns-visibility-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.columns-visibility-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 250px;
+  max-height: 400px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.columns-visibility-header {
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.columns-visibility-list {
+  overflow-y: auto;
+  max-height: 350px;
+  padding: 4px 0;
+}
+
+.column-visibility-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.column-visibility-item:hover {
+  background: var(--bg-hover);
+}
+
+.column-visibility-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+.column-visibility-label {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: 'Fira Code', monospace;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Results Table Cell Selection */
+.results-table td {
+  cursor: cell;
+  user-select: text;
+  position: relative;
+}
+
+.results-table td.selected-cell {
+  background: rgba(78, 201, 176, 0.2) !important;
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.results-table tr.selected-row td {
+  background: rgba(78, 201, 176, 0.15) !important;
+}
+
+.results-table td.selected-column {
+  background: rgba(78, 201, 176, 0.15) !important;
+}
+
+.results-table th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.results-table th.selecting-column {
+  background: rgba(78, 201, 176, 0.2);
 }
 
 .clear-sort-btn {
@@ -2722,39 +2957,50 @@ body.platform-linux .window-controls {
   font-size: 11px;
 }
 
-/* Query History */
-.query-history-search {
-  margin-bottom: 15px;
+/* Query History Modal */
+.query-history-body {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(80vh - 180px);
 }
 
-.search-input {
+.query-history-search-section {
+  padding: 20px 25px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.query-history-search-section input {
   width: 100%;
   padding: 10px 12px;
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
+  transition: border-color 0.2s;
 }
 
-.search-input:focus {
+.query-history-search-section input:focus {
   border-color: var(--accent-primary);
 }
 
 .query-history-list {
-  max-height: 400px;
+  flex: 1;
   overflow-y: auto;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
   background: var(--bg-secondary);
 }
 
 .history-item {
-  padding: 12px 15px;
+  padding: 16px 25px;
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  background: var(--bg-primary);
+  margin: 0;
 }
 
 .history-item:last-child {
@@ -2763,6 +3009,7 @@ body.platform-linux .window-controls {
 
 .history-item:hover {
   background: var(--bg-hover);
+  transform: translateX(4px);
 }
 
 .history-item.selected {
@@ -2774,44 +3021,55 @@ body.platform-linux .window-controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 
 .history-timestamp {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .history-execution-time {
   font-size: 11px;
   color: var(--success);
-  font-weight: 500;
+  font-weight: 600;
+  padding: 3px 8px;
+  background: rgba(78, 201, 176, 0.1);
+  border-radius: 4px;
 }
 
 .history-query {
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: 'Fira Code', 'Monaco', 'Menlo', monospace;
   font-size: 12px;
-  background: var(--bg-primary);
-  padding: 8px;
-  border-radius: 4px;
+  background: var(--bg-tertiary);
+  padding: 10px 12px;
+  border-radius: 6px;
   white-space: pre-wrap;
   word-wrap: break-word;
-  max-height: 100px;
+  max-height: 120px;
   overflow-y: auto;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+  border: 1px solid var(--border-color);
 }
 
 .history-result-info {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .history-result-success {
   color: var(--success);
+  font-weight: 600;
 }
 
 .history-result-error {
   color: var(--error);
+  font-weight: 600;
 }
 
 /* Cell Popover Editing Styles */
@@ -3541,44 +3799,67 @@ body.platform-linux .window-controls {
 /* Table Schema Modal Styles */
 .table-schema-content {
   max-height: 70vh;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .schema-info {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .schema-header {
+  padding: 20px 25px;
+  background: var(--bg-primary);
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 15px;
 }
 
 .schema-header h4 {
-  margin: 0 0 10px 0;
+  margin: 0 0 16px 0;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
 }
 
 .schema-details {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 10px;
-  font-size: 14px;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
 }
 
-.schema-details div {
+.schema-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-label {
+  font-size: 11px;
   color: var(--text-secondary);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 
-.schema-details strong {
+.detail-value {
+  font-size: 14px;
   color: var(--text-primary);
+  font-weight: 500;
+  font-family: 'Fira Code', monospace;
 }
 
-.schema-columns h4 {
-  margin: 0 0 15px 0;
+.schema-columns {
+  padding: 20px 25px;
+}
+
+.schema-columns h4,
+.schema-relationships h4,
+.schema-indexes h4 {
+  margin: 0 0 16px 0;
   color: var(--text-primary);
   font-size: 16px;
   font-weight: 600;
@@ -3589,23 +3870,25 @@ body.platform-linux .window-controls {
   border-radius: 8px;
   overflow: hidden;
   background: var(--bg-primary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .column-header {
   display: grid;
-  grid-template-columns: 2fr 1.5fr 1fr 1.5fr 1fr;
+  grid-template-columns: 2fr 1.5fr 1fr 1.5fr 1.5fr;
   background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 2px solid var(--border-color);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* Table Schema Modal specific styles */
 .table-schema-content .column-header > div,
 .table-schema-content .column-row > div {
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-right: 1px solid var(--border-color);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3619,9 +3902,9 @@ body.platform-linux .window-controls {
 
 .table-schema-content .column-row {
   display: grid;
-  grid-template-columns: 2fr 1.5fr 1fr 1.5fr 1fr;
+  grid-template-columns: 2fr 1.5fr 1fr 1.5fr 1.5fr;
   border-bottom: 1px solid var(--border-color);
-  transition: background-color 0.2s ease;
+  transition: background-color 0.15s ease;
 }
 
 .table-schema-content .column-row:hover {
@@ -3636,12 +3919,14 @@ body.platform-linux .window-controls {
   font-family: 'Fira Code', monospace;
   font-weight: 500;
   color: var(--text-primary);
+  font-size: 13px;
 }
 
 .table-schema-content .col-type {
   color: var(--accent-primary);
   font-family: 'Fira Code', monospace;
   font-size: 13px;
+  font-weight: 500;
 }
 
 .table-schema-content .col-nullable,
@@ -3650,51 +3935,166 @@ body.platform-linux .window-controls {
   color: var(--text-secondary);
 }
 
+.table-schema-content .col-constraints {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .key-badge {
-  display: inline-block;
-  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
   border-radius: 4px;
   font-size: 10px;
-  font-weight: 600;
-  margin-right: 4px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: help;
+  transition: transform 0.15s ease;
+}
+
+.key-badge:hover {
+  transform: scale(1.1);
 }
 
 .key-badge.primary {
   background: #28a745;
   color: white;
+  box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
 }
 
 .key-badge.foreign {
   background: #17a2b8;
   color: white;
+  box-shadow: 0 2px 4px rgba(23, 162, 184, 0.3);
+}
+
+.key-badge.unique {
+  background: #ffc107;
+  color: #000;
+  box-shadow: 0 2px 4px rgba(255, 193, 7, 0.3);
+}
+
+.key-badge.index {
+  background: #6c757d;
+  color: white;
+  box-shadow: 0 2px 4px rgba(108, 117, 125, 0.3);
 }
 
 .schema-relationships {
-  border-top: 1px solid var(--border-color);
-  padding-top: 15px;
-}
-
-.schema-relationships h4 {
-  margin: 0 0 15px 0;
-  color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 600;
+  padding: 20px 25px;
+  background: var(--bg-primary);
 }
 
 .relationships-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .relationship-item {
-  padding: 10px 15px;
-  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  font-size: 14px;
-  color: var(--text-secondary);
+  font-size: 13px;
   font-family: 'Fira Code', monospace;
+  transition: all 0.15s ease;
+}
+
+.relationship-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  transform: translateX(4px);
+}
+
+.relationship-column {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.relationship-arrow {
+  color: var(--accent-primary);
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.schema-indexes {
+  padding: 20px 25px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-color);
+}
+
+.indexes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.index-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.index-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.index-name {
+  font-family: 'Fira Code', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.index-details {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.index-type-badge {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.index-type-badge.unique {
+  background: #ffc107;
+  color: #000;
+  border-color: #ffc107;
+}
+
+.index-column {
+  font-family: 'Fira Code', monospace;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.index-method {
+  color: var(--text-secondary);
+  font-style: italic;
 }
 
 .relationship-item strong {
