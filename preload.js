@@ -54,6 +54,8 @@ contextBridge.exposeInMainWorld('api', {
   openFile: () => ipcRenderer.invoke('open-file'),
   saveFile: (options) => ipcRenderer.invoke('save-file', options),
 
-  // File Operations
-  saveFile: (options) => ipcRenderer.invoke('save-file', options)
+  // Window Controls
+  minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
+  maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
+  closeWindow: () => ipcRenderer.invoke('close-window')
 });

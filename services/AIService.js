@@ -4,7 +4,7 @@ const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/mess
 class AIService {
   constructor(configService = null) {
     // Get API key with fallback to default embedded key
-    const apiKey = configService ? configService.getApiKey() : (process.env.GOOGLE_API_KEY || 'AIzaSyDjbkIPkzH17KrYkYyoOWDuGVA0i24yaIk');
+    const apiKey = configService ? configService.getApiKey() : (process.env.GOOGLE_API_KEY || 'AIzaSyAcdDKzXkeVg7RgCDRbCDOdp3Vgg2OXo6M');
     
     this.model = new ChatGoogleGenerativeAI({
       modelName: 'gemini-2.0-flash',
@@ -94,18 +94,19 @@ ${schemaText}
 
 Rules:
 1. Generate ONLY valid PostgreSQL SQL statements (SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, DROP TABLE, etc.)
-2. Use the exact table and column names from the schema
-3. Include appropriate JOINs when querying multiple tables
-4. Add WHERE clauses for filtering when mentioned
-5. Use proper formatting and indentation
-6. Return ONLY the SQL statement, no explanations or markdown
-7. For SELECT queries, always specify column names (avoid SELECT *)
-8. For ALTER TABLE operations, use proper PostgreSQL syntax
-9. For data type changes, consider PostgreSQL-specific types (UUID, JSONB, TIMESTAMP, etc.)
-10. Use table aliases for better readability in complex queries
-11. Add appropriate ORDER BY clauses when relevant for SELECT statements
-12. Consider performance implications and constraints
-13. For DDL operations (CREATE, ALTER, DROP), ensure proper syntax and data types
+2. Use the EXACT table and column names from the schema, preserving case sensitivity (uppercase/lowercase)
+3. NEVER change the case of table names or column names - use them exactly as shown in the schema
+4. Include appropriate JOINs when querying multiple tables
+5. Add WHERE clauses for filtering when mentioned
+6. Use proper formatting and indentation
+7. Return ONLY the SQL statement, no explanations or markdown
+8. For SELECT queries, always specify column names (avoid SELECT *)
+9. For ALTER TABLE operations, use proper PostgreSQL syntax
+10. For data type changes, consider PostgreSQL-specific types (UUID, JSONB, TIMESTAMP, etc.)
+11. Use table aliases for better readability in complex queries
+12. Add appropriate ORDER BY clauses when relevant for SELECT statements
+13. Consider performance implications and constraints
+14. For DDL operations (CREATE, ALTER, DROP), ensure proper syntax and data types
 
 Examples of supported operations:
 - SELECT queries with JOINs, WHERE, ORDER BY, GROUP BY
@@ -116,6 +117,11 @@ Examples of supported operations:
 - ALTER TABLE to add, modify, or drop columns
 - CREATE INDEX for performance optimization
 - Any other valid PostgreSQL DDL or DML operation
+
+CASE PRESERVATION EXAMPLE:
+If schema shows table "UserProfile" with column "firstName", ALWAYS use:
+SELECT firstName FROM UserProfile;
+NEVER use: SELECT firstname FROM userprofile;
 
 If the request is unclear or cannot be fulfilled with the available schema, return an error message starting with "ERROR:".`;
 

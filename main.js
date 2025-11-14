@@ -363,6 +363,29 @@ ipcMain.handle('set-api-key', async (event, apiKey) => {
   }
 });
 
+// Window Controls
+ipcMain.handle('minimize-window', () => {
+  if (mainWindow) {
+    mainWindow.minimize();
+  }
+});
+
+ipcMain.handle('maximize-window', () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  }
+});
+
+ipcMain.handle('close-window', () => {
+  if (mainWindow) {
+    mainWindow.close();
+  }
+});
+
 // Handle errors
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);

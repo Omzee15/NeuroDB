@@ -79,9 +79,54 @@ function initializeDOMElements() {
   limitSelect = document.getElementById('limitSelect');
 }
 
+// Platform-specific setup
+function setupPlatformSpecific() {
+  // Detect platform and add class to body
+  const platform = navigator.platform.toLowerCase();
+  if (platform.includes('win')) {
+    document.body.classList.add('platform-win32');
+  } else if (platform.includes('linux')) {
+    document.body.classList.add('platform-linux');
+  } else {
+    document.body.classList.add('platform-darwin');
+  }
+  
+  // Set up window controls for Windows/Linux
+  if (platform.includes('win') || platform.includes('linux')) {
+    setupWindowControls();
+  }
+}
+
+function setupWindowControls() {
+  const minimizeBtn = document.getElementById('minimizeBtn');
+  const maximizeBtn = document.getElementById('maximizeBtn');
+  const closeBtn = document.getElementById('closeBtn');
+  
+  if (minimizeBtn) {
+    minimizeBtn.addEventListener('click', () => {
+      window.api.minimizeWindow();
+    });
+  }
+  
+  if (maximizeBtn) {
+    maximizeBtn.addEventListener('click', () => {
+      window.api.maximizeWindow();
+    });
+  }
+  
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      window.api.closeWindow();
+    });
+  }
+}
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
   try {
+    // Set up platform-specific styles and controls
+    setupPlatformSpecific();
+    
     // Initialize DOM element references
     initializeDOMElements();
     
@@ -1124,6 +1169,9 @@ function setupEventListeners() {
   
   // Setup resize functionality
   setupResultsResize();
+  
+  // Export Dropdown functionality
+  setupExportDropdown();
 }
 
 // Setup Results Resize Functionality
@@ -1138,6 +1186,10 @@ function setupResultsResize() {
     return;
   }
   
+  // Remove existing event listeners to prevent duplicates
+  resizeHandle.replaceWith(resizeHandle.cloneNode(true));
+  const newResizeHandle = document.getElementById('resizeHandle');
+  
   let isResizing = false;
   let startY = 0;
   let startEditorHeight = 0;
@@ -1147,7 +1199,7 @@ function setupResultsResize() {
   updateContainerHeights();
   
   // Mouse down on resize handle
-  resizeHandle.addEventListener('mousedown', (e) => {
+  newResizeHandle.addEventListener('mousedown', (e) => {
     isResizing = true;
     startY = e.clientY;
     startEditorHeight = editorContainer.offsetHeight;
@@ -1162,27 +1214,39 @@ function setupResultsResize() {
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'ns-resize';
     
+    // Add mouse move and up listeners
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseleave', handleMouseUp);
+    
     e.preventDefault();
+    e.stopPropagation();
   });
   
   // Mouse move for resizing
-  document.addEventListener('mousemove', (e) => {
+  const handleMouseMove = (e) => {
     if (!isResizing) return;
     
     const deltaY = e.clientY - startY;
-    const newEditorHeight = Math.max(150, Math.min(startEditorHeight + deltaY, window.innerHeight - 400));
-    const newResultsHeight = Math.max(150, Math.min(startResultsHeight - deltaY, window.innerHeight - 400));
+    const minHeight = 150;
+    const maxHeight = window.innerHeight - 300; // Leave space for other UI elements
     
-    // Ensure total height doesn't exceed available space
-    const totalAvailableHeight = querySection.offsetHeight - 100; // Account for other elements
-    if (newEditorHeight + newResultsHeight <= totalAvailableHeight) {
-      editorContainer.style.height = newEditorHeight + 'px';
-      resultsContainer.style.height = newResultsHeight + 'px';
-    }
-  });
+    let newEditorHeight = startEditorHeight + deltaY;
+    let newResultsHeight = startResultsHeight - deltaY;
+    
+    // Apply constraints
+    newEditorHeight = Math.max(minHeight, Math.min(newEditorHeight, maxHeight));
+    newResultsHeight = Math.max(minHeight, Math.min(newResultsHeight, maxHeight));
+    
+    // Apply the new heights
+    editorContainer.style.height = newEditorHeight + 'px';
+    resultsContainer.style.height = newResultsHeight + 'px';
+    
+    e.preventDefault();
+  };
   
-  // Mouse up to stop resizing
-  document.addEventListener('mouseup', () => {
+  // Mouse up handler (defined here for closure access)
+  const handleMouseUp = () => {
     if (isResizing) {
       isResizing = false;
       document.body.style.userSelect = '';
@@ -1191,14 +1255,70 @@ function setupResultsResize() {
       // Save heights to localStorage
       localStorage.setItem('neurodb_editor_height', editorContainer.offsetHeight);
       localStorage.setItem('neurodb_results_height', resultsContainer.offsetHeight);
+      
+      // Clean up event listeners
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mouseleave', handleMouseUp);
     }
-  });
+  };
   
   // Handle window resize
   window.addEventListener('resize', () => {
     if (!isResizing) {
       updateContainerHeights();
     }
+  });
+  
+  // Add keyboard escape to cancel resize if stuck
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isResizing) {
+      handleMouseUp();
+    }
+  });
+  
+  // Force reset function for debugging (accessible via console)
+  window.resetResize = () => {
+    isResizing = false;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    console.log('Resize state reset');
+  };
+}
+
+// Setup Export Dropdown functionality
+function setupExportDropdown() {
+  const dropdownBtn = document.getElementById('exportDropdownBtn');
+  const dropdownMenu = document.getElementById('exportDropdownMenu');
+  
+  if (!dropdownBtn || !dropdownMenu) return;
+  
+  // Toggle dropdown on button click
+  dropdownBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !dropdownMenu.classList.contains('hidden');
+    
+    if (isOpen) {
+      dropdownMenu.classList.add('hidden');
+      dropdownBtn.classList.remove('open');
+    } else {
+      dropdownMenu.classList.remove('hidden');
+      dropdownBtn.classList.add('open');
+    }
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!dropdownBtn.contains(e.target) && !dropdownMenu.contains(e.target)) {
+      dropdownMenu.classList.add('hidden');
+      dropdownBtn.classList.remove('open');
+    }
+  });
+  
+  // Close dropdown when clicking on menu items
+  dropdownMenu.addEventListener('click', () => {
+    dropdownMenu.classList.add('hidden');
+    dropdownBtn.classList.remove('open');
   });
 }
 
@@ -2822,6 +2942,20 @@ function setupSearchControls() {
   newSortColumnSelect.addEventListener('change', performSort);
   newSortOrderSelect.addEventListener('change', performSort);
   newClearSortBtn.addEventListener('click', clearSort);
+  
+  // Add highlight event listeners
+  const highlightInput = document.getElementById('highlightInput');
+  const clearHighlightBtn = document.getElementById('clearHighlightBtn');
+  
+  if (highlightInput && clearHighlightBtn) {
+    highlightInput.addEventListener('input', performHighlight);
+    clearHighlightBtn.addEventListener('click', clearHighlight);
+    
+    // If there's already a highlight term, apply it to the new results
+    if (highlightInput.value.trim()) {
+      performHighlight();
+    }
+  }
 }
 
 function performSearch() {
@@ -2853,14 +2987,14 @@ function performSearch() {
         if (!selectedColumn || columnName === selectedColumn) {
           if (cellValue.toLowerCase().includes(searchTerm)) {
             shouldShow = true;
-            // Highlight the match
+            // Also highlight the match in the filter search
             highlightSearchTerm(cell, searchTerm);
           } else {
-            // Remove existing highlights
+            // Remove highlights from non-matching cells in searched columns
             removeHighlight(cell);
           }
         } else {
-          // Remove highlights from non-searched columns
+          // Remove highlights from non-searched columns during filter
           removeHighlight(cell);
         }
       }
@@ -2884,9 +3018,22 @@ function performSearch() {
 }
 
 function highlightSearchTerm(cell, searchTerm) {
+  // First, always remove existing highlights to start fresh
+  removeHighlight(cell);
+  
   const fullValue = cell.dataset.fullValue || cell.textContent;
-  const regex = new RegExp(`(${escapeRegExp(searchTerm)})`, 'gi');
-  const highlightedText = fullValue.replace(regex, '<span class="search-highlight">$1</span>');
+  
+  // Check if the search term actually exists in the full value (case-insensitive)
+  if (!searchTerm || !fullValue.toLowerCase().includes(searchTerm.toLowerCase())) {
+    return; // No match found, don't highlight anything
+  }
+  
+  // Escape special regex characters and create pattern for exact match
+  const escapedTerm = escapeRegExp(searchTerm);
+  const regex = new RegExp(escapedTerm, 'gi'); // Global, case-insensitive
+  
+  // Replace all occurrences of the exact search term
+  const highlightedText = fullValue.replace(regex, '<span class="search-highlight">$&</span>');
   
   // Only update if we're adding highlights
   if (highlightedText !== fullValue) {
@@ -2933,7 +3080,7 @@ function clearSearch() {
   searchInput.value = '';
   columnSelect.value = '';
   
-  // Remove all highlights and show all rows
+  // Show all rows and clear filter highlights (preserve independent highlights)
   const table = document.querySelector('.results-table tbody');
   if (table) {
     const rows = table.querySelectorAll('tr');
@@ -2946,13 +3093,62 @@ function clearSearch() {
         lineNumCell.textContent = index + 1;
       }
       
-      // Remove highlights
+      // Clear filter highlights, but reapply independent highlights if they exist
       const cells = row.querySelectorAll('td');
-      cells.forEach(cell => removeHighlight(cell));
+      cells.forEach(cell => {
+        removeHighlight(cell);
+        
+        // Reapply independent highlight search if it exists
+        const highlightInput = document.getElementById('highlightInput');
+        if (highlightInput && highlightInput.value.trim()) {
+          highlightSearchTerm(cell, highlightInput.value.trim());
+        }
+      });
     });
     
     // Update results info
     updateResultsInfo(rows.length, rows.length);
+  }
+}
+
+// Highlight functionality for results (separate from filter search)
+function performHighlight() {
+  const highlightInput = document.getElementById('highlightInput');
+  const highlightTerm = highlightInput.value.trim();
+  
+  const table = document.querySelector('.results-table tbody');
+  if (!table) return;
+  
+  const rows = table.querySelectorAll('tr');
+  
+  rows.forEach(row => {
+    const cells = row.querySelectorAll('td');
+    
+    // Skip the first cell (line number)
+    for (let i = 1; i < cells.length; i++) {
+      const cell = cells[i];
+      
+      if (!highlightTerm) {
+        removeHighlight(cell);
+      } else {
+        highlightSearchTerm(cell, highlightTerm);
+      }
+    }
+  });
+}
+
+function clearHighlight() {
+  const highlightInput = document.getElementById('highlightInput');
+  highlightInput.value = '';
+  
+  // Remove all highlights
+  const table = document.querySelector('.results-table tbody');
+  if (table) {
+    const rows = table.querySelectorAll('tr');
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      cells.forEach(cell => removeHighlight(cell));
+    });
   }
 }
 
@@ -3188,28 +3384,38 @@ function hideSearchControls() {
 window.currentQueryResults = [];
 
 function enableExportButtons() {
-  const exportButtons = document.getElementById('exportButtons');
-  const buttons = exportButtons?.querySelectorAll('.export-btn');
+  const exportContainer = document.getElementById('exportButtons');
+  const dropdownBtn = document.getElementById('exportDropdownBtn');
+  const menuItems = exportContainer?.querySelectorAll('.export-dropdown-item');
   
-  if (exportButtons) {
-    exportButtons.classList.remove('disabled');
+  if (exportContainer) {
+    exportContainer.classList.remove('disabled');
   }
   
-  buttons?.forEach(btn => {
-    btn.disabled = false;
+  if (dropdownBtn) {
+    dropdownBtn.disabled = false;
+  }
+  
+  menuItems?.forEach(item => {
+    item.disabled = false;
   });
 }
 
 function disableExportButtons() {
-  const exportButtons = document.getElementById('exportButtons');
-  const buttons = exportButtons?.querySelectorAll('.export-btn');
+  const exportContainer = document.getElementById('exportButtons');
+  const dropdownBtn = document.getElementById('exportDropdownBtn');
+  const menuItems = exportContainer?.querySelectorAll('.export-dropdown-item');
   
-  if (exportButtons) {
-    exportButtons.classList.add('disabled');
+  if (exportContainer) {
+    exportContainer.classList.add('disabled');
   }
   
-  buttons?.forEach(btn => {
-    btn.disabled = true;
+  if (dropdownBtn) {
+    dropdownBtn.disabled = true;
+  }
+  
+  menuItems?.forEach(item => {
+    item.disabled = true;
   });
   
   // Clear stored results

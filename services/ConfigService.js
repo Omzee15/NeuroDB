@@ -6,7 +6,7 @@ class ConfigService {
     this.configPath = path.join(__dirname, '../user-config.json');
     this.config = this.loadConfig();
     // Default fallback API key embedded in the app
-    this.defaultApiKey = 'AIzaSyDjbkIPkzH17KrYkYyoOWDuGVA0i24yaIk';
+    this.defaultApiKey = 'AIzaSyAcdDKzXkeVg7RgCDRbCDOdp3Vgg2OXo6M';
   }
 
   loadConfig() {
