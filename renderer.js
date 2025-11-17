@@ -860,6 +860,40 @@ function setupEventListeners() {
   document.getElementById('closeConnectionModal')?.addEventListener('click', () => closeConnectionModal());
   document.getElementById('cancelConnectionBtn')?.addEventListener('click', () => closeConnectionModal());
 
+  // Connection URL toggle
+  document.getElementById('useConnectionUrl')?.addEventListener('change', (e) => {
+    const urlMode = e.target.checked;
+    const urlFields = document.getElementById('urlModeFields');
+    const individualFields = document.getElementById('individualModeFields');
+    const connectionUrl = document.getElementById('connectionUrl');
+    const connectionHost = document.getElementById('connectionHost');
+    const connectionPort = document.getElementById('connectionPort');
+    const connectionUser = document.getElementById('connectionUser');
+    const connectionPassword = document.getElementById('connectionPassword');
+    
+    if (urlMode) {
+      urlFields.classList.remove('hidden');
+      individualFields.classList.add('hidden');
+      
+      // Make URL required, individual fields not required
+      connectionUrl.required = true;
+      connectionHost.required = false;
+      connectionPort.required = false;
+      connectionUser.required = false;
+      connectionPassword.required = false;
+    } else {
+      urlFields.classList.add('hidden');
+      individualFields.classList.remove('hidden');
+      
+      // Make individual fields required, URL not required
+      connectionUrl.required = false;
+      connectionHost.required = true;
+      connectionPort.required = true;
+      connectionUser.required = true;
+      connectionPassword.required = true;
+    }
+  });
+
   // Backup Button
   document.getElementById('backupDatabaseBtn')?.addEventListener('click', () => {
     if (currentConnectionId) {
@@ -1354,8 +1388,70 @@ function updateContainerHeights() {
   }
 }
 
+// Parse PostgreSQL connection URL
+function parseConnectionUrl(urlString) {
+  // Support both postgresql:// and postgres:// schemes
+  const urlPattern = /^(postgres|postgresql):\/\/(?:([^:]+)(?::([^@]*))?@)?([^:\/]+)(?::(\d+))?(?:\/([^?]+))?(?:\?(.*))?$/;
+  const match = urlString.match(urlPattern);
+  
+  if (!match) {
+    throw new Error('Invalid PostgreSQL URL format. Expected: postgresql://user:password@host:port/database');
+  }
+  
+  const [, , user, password, host, port, database, query] = match;
+  
+  const connection = {
+    host: host || 'localhost',
+    port: port ? parseInt(port) : 5432,
+    user: user || 'postgres',
+    password: password ? decodeURIComponent(password) : '',
+    database: database || 'postgres'
+  };
+  
+  // Default SSL to true for cloud providers (Render, Heroku, AWS, etc.)
+  const cloudProviders = ['.render.com', 'amazonaws.com', 'heroku.com', 'digitalocean.com', 'azure.com'];
+  const isCloudProvider = cloudProviders.some(provider => host.includes(provider));
+  
+  // Enable SSL by default for cloud providers
+  if (isCloudProvider) {
+    connection.ssl = true;
+    connection.sslmode = 'require';
+  }
+  
+  // Parse query parameters if any (e.g., sslmode, etc.)
+  if (query) {
+    const params = new URLSearchParams(query);
+    for (const [key, value] of params) {
+      if (key === 'sslmode' || key === 'ssl') {
+        connection.ssl = value !== 'disable' && value !== 'false';
+        connection.sslmode = value;
+      } else {
+        connection[key] = value;
+      }
+    }
+  }
+  
+  return connection;
+}
+
 // Connection Management
 function openConnectionModal(connection = null) {
+  // Reset URL mode
+  const useUrlCheckbox = document.getElementById('useConnectionUrl');
+  const urlFields = document.getElementById('urlModeFields');
+  const individualFields = document.getElementById('individualModeFields');
+  
+  useUrlCheckbox.checked = false;
+  urlFields.classList.add('hidden');
+  individualFields.classList.remove('hidden');
+  
+  // Reset required fields
+  document.getElementById('connectionUrl').required = false;
+  document.getElementById('connectionHost').required = true;
+  document.getElementById('connectionPort').required = true;
+  document.getElementById('connectionUser').required = true;
+  document.getElementById('connectionPassword').required = true;
+  
   if (connection) {
     document.getElementById('connectionModalTitle').textContent = 'Edit Connection';
     document.getElementById('connectionId').value = connection.id;
@@ -1383,13 +1479,31 @@ function closeConnectionModal() {
 async function testConnection(e) {
   e.preventDefault();
   
-  const connection = {
-    host: document.getElementById('connectionHost').value,
-    port: parseInt(document.getElementById('connectionPort').value),
-    database: document.getElementById('connectionDatabase').value,
-    user: document.getElementById('connectionUser').value,
-    password: document.getElementById('connectionPassword').value,
-  };
+  const useUrl = document.getElementById('useConnectionUrl').checked;
+  let connection;
+  
+  if (useUrl) {
+    // Parse the connection URL
+    const url = document.getElementById('connectionUrl').value;
+    try {
+      connection = parseConnectionUrl(url);
+    } catch (error) {
+      const statusEl = document.getElementById('connectionStatus');
+      statusEl.textContent = '✗ Invalid URL format: ' + error.message;
+      statusEl.className = 'connection-status error';
+      statusEl.style.display = 'block';
+      return;
+    }
+  } else {
+    // Use individual fields
+    connection = {
+      host: document.getElementById('connectionHost').value,
+      port: parseInt(document.getElementById('connectionPort').value),
+      database: document.getElementById('connectionDatabase')?.value || 'postgres',
+      user: document.getElementById('connectionUser').value,
+      password: document.getElementById('connectionPassword').value,
+    };
+  }
   
   const statusEl = document.getElementById('connectionStatus');
   statusEl.textContent = 'Testing connection...';
@@ -1415,14 +1529,48 @@ async function testConnection(e) {
 async function saveConnection(e) {
   e.preventDefault();
   
+  const useUrl = document.getElementById('useConnectionUrl').checked;
+  let host, port, user, password, ssl, sslmode;
+  
+  if (useUrl) {
+    // Parse the connection URL
+    const url = document.getElementById('connectionUrl').value;
+    try {
+      const parsed = parseConnectionUrl(url);
+      host = parsed.host;
+      port = parsed.port;
+      user = parsed.user;
+      password = parsed.password;
+      ssl = parsed.ssl;
+      sslmode = parsed.sslmode;
+    } catch (error) {
+      showNotification('Invalid URL format: ' + error.message, 'error');
+      return;
+    }
+  } else {
+    // Use individual fields
+    host = document.getElementById('connectionHost').value;
+    port = parseInt(document.getElementById('connectionPort').value);
+    user = document.getElementById('connectionUser').value;
+    password = document.getElementById('connectionPassword').value;
+  }
+  
   const server = {
     id: document.getElementById('connectionId').value || undefined,
     name: document.getElementById('connectionName').value,
-    host: document.getElementById('connectionHost').value,
-    port: parseInt(document.getElementById('connectionPort').value),
-    user: document.getElementById('connectionUser').value,
-    password: document.getElementById('connectionPassword').value,
+    host: host,
+    port: port,
+    user: user,
+    password: password,
   };
+  
+  // Add SSL configuration if present
+  if (ssl !== undefined) {
+    server.ssl = ssl;
+  }
+  if (sslmode !== undefined) {
+    server.sslmode = sslmode;
+  }
   
   try {
     const result = await window.api.saveServer(server);

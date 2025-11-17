@@ -162,13 +162,22 @@ class DatabaseService {
 
   async testConnection(connection) {
     try {
-      const pool = new Pool({
+      const poolConfig = {
         host: connection.host,
         port: connection.port,
         database: connection.database,
         user: connection.user,
         password: connection.password
-      });
+      };
+      
+      // Add SSL configuration if present
+      if (connection.ssl || connection.sslmode) {
+        poolConfig.ssl = {
+          rejectUnauthorized: false // Allow self-signed certificates
+        };
+      }
+      
+      const pool = new Pool(poolConfig);
 
       const client = await pool.connect();
       client.release();
@@ -187,13 +196,22 @@ class DatabaseService {
     }
 
     try {
-      const pool = new Pool({
+      const poolConfig = {
         host: server.host,
         port: server.port,
         database: 'postgres', // Connect to default postgres database
         user: server.user,
         password: server.password
-      });
+      };
+      
+      // Add SSL configuration if present
+      if (server.ssl || server.sslmode) {
+        poolConfig.ssl = {
+          rejectUnauthorized: false
+        };
+      }
+      
+      const pool = new Pool(poolConfig);
 
       const result = await pool.query(`
         SELECT datname 
@@ -303,7 +321,7 @@ class DatabaseService {
     const server = this.servers.get(db.serverId);
     if (!server) return null;
     
-    return {
+    const connection = {
       id: db.id,
       name: `${db.name}@${server.host}:${server.port}`,
       host: server.host,
@@ -312,6 +330,16 @@ class DatabaseService {
       user: server.user,
       password: server.password
     };
+    
+    // Include SSL configuration if present
+    if (server.ssl !== undefined) {
+      connection.ssl = server.ssl;
+    }
+    if (server.sslmode !== undefined) {
+      connection.sslmode = server.sslmode;
+    }
+    
+    return connection;
   }
 
   async connect(connectionId) {
@@ -325,13 +353,22 @@ class DatabaseService {
         return { success: true };
       }
 
-      const pool = new Pool({
+      const poolConfig = {
         host: connection.host,
         port: connection.port,
         database: connection.database,
         user: connection.user,
         password: connection.password
-      });
+      };
+      
+      // Add SSL configuration if present
+      if (connection.ssl || connection.sslmode) {
+        poolConfig.ssl = {
+          rejectUnauthorized: false
+        };
+      }
+      
+      const pool = new Pool(poolConfig);
 
       const client = await pool.connect();
       client.release();
