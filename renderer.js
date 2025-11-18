@@ -7311,36 +7311,8 @@ function showTableSchema(schemaName, tableName, tableInfo) {
     `;
   }
   
-  // Add index information if any columns have indexes
-  const columnsWithIndexes = tableInfo.columns.filter(col => col.indexes && col.indexes.length > 0);
-  if (columnsWithIndexes.length > 0) {
-    schemaHTML += `
-      <div class="schema-indexes">
-        <h4>Indexes</h4>
-        <div class="indexes-list">
-    `;
-    
-    for (const column of columnsWithIndexes) {
-      for (const index of column.indexes) {
-        const indexType = index.unique ? 'Unique Index' : 'Index';
-        schemaHTML += `
-          <div class="index-item">
-            <span class="index-name">${index.name}</span>
-            <span class="index-details">
-              <span class="index-type-badge ${index.unique ? 'unique' : ''}">${indexType}</span>
-              <span class="index-column">on ${quoteIdentifier(column.name)}</span>
-              <span class="index-method">(${index.type})</span>
-            </span>
-          </div>
-        `;
-      }
-    }
-    
-    schemaHTML += `
-        </div>
-      </div>
-    `;
-  }
+  // Note: Index information is already displayed in the constraints column
+  // No need for a separate indexes section
   
   content.innerHTML = schemaHTML;
   modal.classList.remove('hidden');
