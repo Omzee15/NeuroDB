@@ -406,7 +406,11 @@ class DatabaseService {
       
       // If queryId is provided, track this query for potential cancellation
       if (queryId) {
-        this.activeQueries.set(queryId, { client, connectionId });
+        // Get the backend process ID for cancellation
+        const pidResult = await client.query('SELECT pg_backend_pid()');
+        const pid = pidResult.rows[0].pg_backend_pid;
+        
+        this.activeQueries.set(queryId, { client, connectionId, pid });
       }
 
       try {
@@ -451,15 +455,28 @@ class DatabaseService {
         return { success: false, error: 'Query not found or already completed' };
       }
 
-      const { client } = queryInfo;
+      const { connectionId, pid } = queryInfo;
       
-      // Cancel the query using PostgreSQL's cancel request
-      await client.cancel();
+      // Get the pool to create a new connection for cancellation
+      const pool = this.pools.get(connectionId);
+      if (!pool) {
+        return { success: false, error: 'Database connection not found' };
+      }
       
-      // Remove from active queries
-      this.activeQueries.delete(queryId);
+      // Use a separate client to cancel the query
+      const cancelClient = await pool.connect();
       
-      return { success: true, message: 'Query cancelled successfully' };
+      try {
+        // Cancel the query using pg_cancel_backend
+        await cancelClient.query('SELECT pg_cancel_backend($1)', [pid]);
+        
+        // Remove from active queries
+        this.activeQueries.delete(queryId);
+        
+        return { success: true, message: 'Query cancelled successfully' };
+      } finally {
+        cancelClient.release();
+      }
     } catch (error) {
       return { success: false, error: error.message };
     }
