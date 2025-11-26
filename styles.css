@@ -1194,15 +1194,86 @@ body.platform-linux .window-controls {
 .query-editor {
   flex: 1;
   padding: 15px;
-  background: var(--bg-primary);
+  background: transparent;
   border: none;
-  color: var(--text-primary);
+  color: transparent;
+  caret-color: var(--text-primary);
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 14px;
   line-height: 1.6;
   resize: none;
   outline: none;
   overflow-y: auto;
+  position: relative;
+  z-index: 2;
+}
+
+.query-editor::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+.query-editor::selection {
+  background: rgba(100, 150, 255, 0.3);
+}
+
+/* Syntax Highlight Overlay */
+.syntax-highlight-overlay {
+  position: absolute;
+  top: 0;
+  left: 42px; /* Matches line numbers width */
+  right: 0;
+  bottom: 0;
+  padding: 15px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: none;
+  z-index: 1;
+  color: var(--text-primary);
+}
+
+/* SQL Syntax Highlighting Colors */
+.sql-keyword {
+  color: #569CD6; /* Blue for keywords */
+  font-weight: bold;
+}
+
+.sql-function {
+  color: #DCDCAA; /* Yellow for functions */
+}
+
+.sql-string {
+  color: #CE9178; /* Orange/Brown for strings */
+}
+
+.sql-number {
+  color: #B5CEA8; /* Green for numbers */
+}
+
+.sql-operator {
+  color: #D4D4D4; /* Light gray for operators */
+}
+
+.sql-comment {
+  color: #6A9955; /* Green for comments */
+  font-style: italic;
+}
+
+.sql-identifier {
+  color: #9CDCFE; /* Light blue for identifiers */
+}
+
+.sql-type {
+  color: #4EC9B0; /* Teal for data types */
+}
+
+.sql-punctuation {
+  color: #D4D4D4; /* Light gray for punctuation */
 }
 
 /* Autocomplete Popover */
@@ -2687,6 +2758,29 @@ body.platform-linux .window-controls {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.schema-type-select {
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.schema-type-select:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+}
+
+.schema-type-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
 }
 
 .dbml-actions button {

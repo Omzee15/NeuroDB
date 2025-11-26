@@ -136,6 +136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupDatabaseBrowserResize();
     applyTheme(currentTheme);
     updateLineNumbers();
+    updateSyntaxHighlight();
     
     // Initialize connection tabs
     renderConnectionTabs();
@@ -714,8 +715,11 @@ function switchToTab(tabIndex) {
   // Update connection state
   currentConnectionId = tab.connectionId;
   
-  // Restore query editor content
-  queryEditor.value = tab.queryEditorContent || '';
+  // Restore query editor content and strip any HTML that might have gotten in
+  const content = tab.queryEditorContent || '';
+  queryEditor.value = stripHTML(content);
+  updateLineNumbers();
+  updateSyntaxHighlight();
   
   // Restore query results if they exist for this tab
   if (tab.queryResults && tab.queryFields) {
@@ -819,6 +823,7 @@ function setupEventListeners() {
       if (result.success) {
         queryEditor.value = result.content;
         updateLineNumbers();
+        updateSyntaxHighlight();
         showNotification('File loaded successfully', 'success');
       } else if (!result.canceled) {
         showNotification('Failed to load file: ' + result.error, 'error');
@@ -938,6 +943,7 @@ function setupEventListeners() {
   // Line numbers and autocomplete
   queryEditor?.addEventListener('input', () => {
     updateLineNumbers();
+    updateSyntaxHighlight();
     handleAutocomplete();
     
     // Save content to current active tab
@@ -953,7 +959,30 @@ function setupEventListeners() {
   
   queryEditor?.addEventListener('scroll', () => {
     const lineNumbers = document.getElementById('lineNumbers');
+    const syntaxHighlight = document.getElementById('syntaxHighlight');
     lineNumbers.scrollTop = queryEditor.scrollTop;
+    if (syntaxHighlight) {
+      syntaxHighlight.scrollTop = queryEditor.scrollTop;
+      syntaxHighlight.scrollLeft = queryEditor.scrollLeft;
+    }
+  });
+  
+  // Strip HTML tags on paste to prevent syntax highlighting markup from being pasted
+  queryEditor?.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    const cleanText = stripHTML(text);
+    
+    // Insert cleaned text at cursor position
+    const start = queryEditor.selectionStart;
+    const end = queryEditor.selectionEnd;
+    const currentValue = queryEditor.value;
+    
+    queryEditor.value = currentValue.substring(0, start) + cleanText + currentValue.substring(end);
+    queryEditor.selectionStart = queryEditor.selectionEnd = start + cleanText.length;
+    
+    // Trigger input event to update line numbers and syntax highlighting
+    queryEditor.dispatchEvent(new Event('input'));
   });
   
   // Keyboard shortcuts for query editor
@@ -1094,6 +1123,43 @@ function setupEventListeners() {
       viewport.innerHTML = '<div class="no-results">Render your DBML script to see the diagram</div>';
     }
     resetDBMLZoom();
+  });
+  
+  // Schema type selector
+  document.getElementById('schemaTypeSelect')?.addEventListener('change', (e) => {
+    const schemaType = e.target.value;
+    const editor = document.getElementById('dbmlEditor');
+    
+    if (schemaType === 'sql') {
+      editor.placeholder = `-- Enter your SQL DDL script here
+-- Example:
+-- CREATE TABLE users (
+--   id SERIAL PRIMARY KEY,
+--   name VARCHAR(100) NOT NULL,
+--   email VARCHAR(100) UNIQUE
+-- );
+--
+-- CREATE TABLE posts (
+--   id SERIAL PRIMARY KEY,
+--   user_id INTEGER REFERENCES users(id),
+--   title VARCHAR(200) NOT NULL,
+--   content TEXT
+-- );`;
+    } else {
+      editor.placeholder = `// Enter your DBML script here
+// Example:
+// Table users {
+//   id integer [primary key]
+//   name varchar
+//   email varchar
+// }
+//
+// Table posts {
+//   id integer [primary key]
+//   user_id integer [ref: > users.id]
+//   title varchar
+// }`;
+    }
   });
 
   // DBML Zoom and Pan
@@ -2244,6 +2310,7 @@ function selectTable(schemaName, tableName, tableInfo) {
   
   // Update line numbers after setting the value
   updateLineNumbers();
+  updateSyntaxHighlight();
   
   // Show and populate the where clause builder
   showWhereClauseBuilder(fullTableName, tableInfo.columns);
@@ -2273,6 +2340,7 @@ function selectView(schemaName, viewName, viewInfo) {
   
   // Update line numbers after setting the value
   updateLineNumbers();
+  updateSyntaxHighlight();
   
   // Hide where clause builder for views (since we don't have column info)
   hideWhereClauseBuilder();
@@ -2470,6 +2538,7 @@ function generateWhereQuery() {
   // Set the query in the editor
   queryEditor.value = query;
   updateLineNumbers();
+  updateSyntaxHighlight();
   
   // Execute the query
   executeQuery();
@@ -5462,6 +5531,91 @@ function convertSchemaToDBML() {
   return dbml;
 }
 
+function convertSchemaToSQL() {
+  if (!currentSchema) return null;
+  
+  let sql = `-- Database Schema - Auto-generated\n`;
+  sql += `-- Generated at: ${new Date().toISOString()}\n\n`;
+  
+  const foreignKeys = [];
+  
+  // Process tables
+  if (currentSchema.tables) {
+    for (const [fullTableName, tableInfo] of Object.entries(currentSchema.tables)) {
+      const schema = tableInfo.schema || 'public';
+      const tableName = tableInfo.name;
+      const fullName = schema !== 'public' ? `"${schema}"."${tableName}"` : `"${tableName}"`;
+      
+      sql += `-- Table: ${fullName}\n`;
+      sql += `CREATE TABLE ${fullName} (\n`;
+      
+      const columnDefs = [];
+      const primaryKeys = [];
+      
+      // Add columns
+      if (tableInfo.columns && Array.isArray(tableInfo.columns)) {
+        for (const colInfo of tableInfo.columns) {
+          let colDef = `  "${colInfo.name}" ${colInfo.type || colInfo.data_type || 'TEXT'}`;
+          
+          // Add NOT NULL constraint
+          if (colInfo.nullable === 'NO' || colInfo.nullable === false || colInfo.not_null) {
+            colDef += ' NOT NULL';
+          }
+          
+          // Add DEFAULT
+          if (colInfo.default && colInfo.default !== 'NULL') {
+            colDef += ` DEFAULT ${colInfo.default}`;
+          }
+          
+          // Add UNIQUE
+          if (colInfo.unique) {
+            colDef += ' UNIQUE';
+          }
+          
+          // Track primary keys
+          if (colInfo.primary_key) {
+            primaryKeys.push(`"${colInfo.name}"`);
+          }
+          
+          columnDefs.push(colDef);
+          
+          // Collect foreign keys for later
+          if (colInfo.foreign_key) {
+            const fk = colInfo.foreign_key;
+            foreignKeys.push({
+              from: fullName,
+              fromCol: colInfo.name,
+              to: fk.table,
+              toCol: fk.column
+            });
+          }
+        }
+      }
+      
+      // Add column definitions
+      sql += columnDefs.join(',\n');
+      
+      // Add primary key constraint
+      if (primaryKeys.length > 0) {
+        sql += `,\n  PRIMARY KEY (${primaryKeys.join(', ')})`;
+      }
+      
+      sql += '\n);\n\n';
+    }
+  }
+  
+  // Add foreign key constraints
+  if (foreignKeys.length > 0) {
+    sql += '-- Foreign Key Constraints\n';
+    for (const fk of foreignKeys) {
+      sql += `ALTER TABLE ${fk.from}\n`;
+      sql += `  ADD FOREIGN KEY ("${fk.fromCol}") REFERENCES ${fk.to}("${fk.toCol}");\n\n`;
+    }
+  }
+  
+  return sql;
+}
+
 // Load schema from connected database and render
 async function loadSchemaToDBML() {
   if (!currentConnectionId) {
@@ -5481,13 +5635,22 @@ async function loadSchemaToDBML() {
       }
     }
     
-    // Convert schema to DBML
-    const dbmlScript = convertSchemaToDBML();
-    if (dbmlScript) {
-      // Set the DBML editor content
+    // Check which schema type is selected
+    const schemaType = document.getElementById('schemaTypeSelect').value;
+    
+    // Convert schema to the selected format
+    let schemaScript;
+    if (schemaType === 'sql') {
+      schemaScript = convertSchemaToSQL();
+    } else {
+      schemaScript = convertSchemaToDBML();
+    }
+    
+    if (schemaScript) {
+      // Set the editor content
       const editor = document.getElementById('dbmlEditor');
       if (editor) {
-        editor.value = dbmlScript;
+        editor.value = schemaScript;
       }
       
       // Auto-render the diagram
@@ -5497,36 +5660,46 @@ async function loadSchemaToDBML() {
       showNotification('No schema data available', 'warning');
     }
   } catch (error) {
-    console.error('Error loading schema to DBML:', error);
+    console.error('Error loading schema:', error);
     showNotification('Error loading schema: ' + error.message, 'error');
   }
 }
 
 function renderDBML() {
   const dbmlScript = document.getElementById('dbmlEditor').value;
+  const schemaType = document.getElementById('schemaTypeSelect').value;
   const canvas = document.getElementById('dbmlCanvas');
   const viewport = document.getElementById('dbmlViewport');
   
   if (!dbmlScript.trim()) {
     if (viewport) {
-      viewport.innerHTML = '<div class="no-results">Enter DBML script and click Render</div>';
+      const schemaName = schemaType === 'sql' ? 'SQL DDL' : 'DBML';
+      viewport.innerHTML = `<div class="no-results">Enter ${schemaName} script and click Render</div>`;
     }
     return;
   }
   
   try {
-    const parsed = parseDBML(dbmlScript);
+    let parsed;
+    
+    if (schemaType === 'sql') {
+      parsed = parseSQL(dbmlScript);
+    } else {
+      parsed = parseDBML(dbmlScript);
+    }
+    
     dbmlTables = parsed.tables;
     dbmlRelationships = parsed.relationships;
     
     renderDBMLDiagram();
     showNotification('Diagram rendered successfully', 'success');
   } catch (error) {
-    console.error('DBML Parse Error:', error);
+    console.error('Parse Error:', error);
     if (viewport) {
-      viewport.innerHTML = `<div class="no-results" style="color: var(--error);">Error parsing DBML: ${error.message}</div>`;
+      const schemaName = schemaType === 'sql' ? 'SQL DDL' : 'DBML';
+      viewport.innerHTML = `<div class="no-results" style="color: var(--error);">Error parsing ${schemaName}: ${error.message}</div>`;
     }
-    showNotification('Error parsing DBML', 'error');
+    showNotification(`Error parsing ${schemaType.toUpperCase()}`, 'error');
   }
 }
 
@@ -5618,6 +5791,222 @@ function parseDBML(script) {
   });
   
   return { tables, relationships };
+}
+
+function parseSQL(script) {
+  const tables = [];
+  const relationships = [];
+  
+  // Remove comments (both -- and /* */ style)
+  let cleanedScript = script.replace(/--[^\n]*/g, '');
+  cleanedScript = cleanedScript.replace(/\/\*[\s\S]*?\*\//g, '');
+  
+  // Extract CREATE TABLE statements (case-insensitive, multiline)
+  const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(([\s\S]*?)\);/gi;
+  const alterTableRegex = /ALTER\s+TABLE\s+(?:"?(\w+)"?\.)?"?(\w+)"?\s+ADD\s+(?:CONSTRAINT\s+\w+\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(([^)]+)\)/gi;
+  
+  let match;
+  
+  // Parse CREATE TABLE statements
+  while ((match = tableRegex.exec(cleanedScript)) !== null) {
+    const schema = match[1];
+    const tableName = match[2];
+    const columnsText = match[3];
+    
+    const table = {
+      name: tableName,
+      columns: [],
+      x: Math.random() * 400 + 50,
+      y: Math.random() * 400 + 50
+    };
+    
+    // Split columns by comma (but not inside parentheses)
+    const columnLines = splitByComma(columnsText);
+    
+    for (let columnLine of columnLines) {
+      columnLine = columnLine.trim();
+      
+      // Skip CONSTRAINT definitions at table level
+      if (/^CONSTRAINT\s+/i.test(columnLine)) {
+        // Handle FOREIGN KEY constraint
+        const fkMatch = columnLine.match(/CONSTRAINT\s+\w+\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(([^)]+)\)/i);
+        if (fkMatch) {
+          const fromCols = fkMatch[1].split(',').map(c => c.trim().replace(/"/g, ''));
+          const toTable = fkMatch[3];
+          const toCols = fkMatch[4].split(',').map(c => c.trim().replace(/"/g, ''));
+          
+          fromCols.forEach((fromCol, idx) => {
+            relationships.push({
+              from: tableName,
+              fromCol: fromCol,
+              to: toTable,
+              toCol: toCols[idx] || toCols[0],
+              direction: '>'
+            });
+          });
+        }
+        continue;
+      }
+      
+      // Skip PRIMARY KEY, FOREIGN KEY, UNIQUE constraints at table level (without CONSTRAINT keyword)
+      if (/^(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE\s*\()/i.test(columnLine)) {
+        // Handle inline FOREIGN KEY
+        const fkMatch = columnLine.match(/FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(([^)]+)\)/i);
+        if (fkMatch) {
+          const fromCols = fkMatch[1].split(',').map(c => c.trim().replace(/"/g, ''));
+          const toTable = fkMatch[3];
+          const toCols = fkMatch[4].split(',').map(c => c.trim().replace(/"/g, ''));
+          
+          fromCols.forEach((fromCol, idx) => {
+            relationships.push({
+              from: tableName,
+              fromCol: fromCol,
+              to: toTable,
+              toCol: toCols[idx] || toCols[0],
+              direction: '>'
+            });
+          });
+        }
+        continue;
+      }
+      
+      // Parse column definition
+      // Match: column_name data_type[(precision)] [constraints...]
+      const columnMatch = columnLine.match(/^"?(\w+)"?\s+([\w\s()]+?)(\s+.*)?$/i);
+      if (columnMatch) {
+        const colName = columnMatch[1];
+        let dataType = columnMatch[2].trim();
+        const constraints = columnMatch[3] || '';
+        
+        // Clean up data type - remove extra spaces
+        dataType = dataType.replace(/\s+/g, ' ').trim();
+        
+        const column = {
+          name: colName,
+          type: dataType,
+          isPK: /PRIMARY\s+KEY/i.test(constraints),
+          isFK: false,
+          isUnique: /UNIQUE/i.test(constraints),
+          notNull: /NOT\s+NULL/i.test(constraints),
+          defaultValue: constraints.match(/DEFAULT\s+([^,\s]+(?:\s+[^,\s]+)*)/i)?.[1]?.trim()
+        };
+        
+        // Check for inline REFERENCES
+        const refMatch = constraints.match(/REFERENCES\s+(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(([^)]+)\)/i);
+        if (refMatch) {
+          const toTable = refMatch[2];
+          const toCol = refMatch[3].trim().replace(/"/g, '');
+          
+          column.isFK = true;
+          relationships.push({
+            from: tableName,
+            fromCol: colName,
+            to: toTable,
+            toCol: toCol,
+            direction: '>'
+          });
+        }
+        
+        table.columns.push(column);
+      }
+    }
+    
+    if (table.columns.length > 0) {
+      tables.push(table);
+      console.log(`Parsed table: ${tableName} with ${table.columns.length} columns`);
+    }
+  }
+  
+  // Parse ALTER TABLE ADD FOREIGN KEY statements
+  while ((match = alterTableRegex.exec(cleanedScript)) !== null) {
+    const fromSchema = match[1];
+    const fromTable = match[2];
+    const fromCols = match[3].split(',').map(c => c.trim().replace(/"/g, ''));
+    const toSchema = match[4];
+    const toTable = match[5];
+    const toCols = match[6].split(',').map(c => c.trim().replace(/"/g, ''));
+    
+    fromCols.forEach((fromCol, idx) => {
+      relationships.push({
+        from: fromTable,
+        fromCol: fromCol,
+        to: toTable,
+        toCol: toCols[idx] || toCols[0],
+        direction: '>'
+      });
+      
+      // Mark the column as FK
+      const table = tables.find(t => t.name === fromTable);
+      if (table) {
+        const column = table.columns.find(c => c.name === fromCol);
+        if (column) {
+          column.isFK = true;
+        }
+      }
+    });
+  }
+  
+  // Mark FK columns based on relationships
+  relationships.forEach(rel => {
+    const table = tables.find(t => t.name === rel.from);
+    if (table) {
+      const column = table.columns.find(c => c.name === rel.fromCol);
+      if (column) {
+        column.isFK = true;
+      }
+    }
+  });
+  
+  console.log('Parsed SQL:', tables.length, 'tables and', relationships.length, 'relationships');
+  
+  return { tables, relationships };
+}
+
+// Helper function to split by comma while respecting parentheses
+function splitByComma(text) {
+  const parts = [];
+  let current = '';
+  let depth = 0;
+  let inString = false;
+  let stringChar = null;
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const prevChar = i > 0 ? text[i - 1] : null;
+    
+    // Handle string literals (both single and double quotes)
+    if ((char === "'" || char === '"') && prevChar !== '\\') {
+      if (!inString) {
+        inString = true;
+        stringChar = char;
+      } else if (char === stringChar) {
+        inString = false;
+        stringChar = null;
+      }
+      current += char;
+    } else if (inString) {
+      current += char;
+    } else if (char === '(') {
+      depth++;
+      current += char;
+    } else if (char === ')') {
+      depth--;
+      current += char;
+    } else if (char === ',' && depth === 0) {
+      if (current.trim()) {
+        parts.push(current.trim());
+      }
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
+  
+  return parts;
 }
 
 function renderDBMLDiagram() {
@@ -5940,6 +6329,48 @@ function updateLineNumbers() {
   }
   
   lineNumbers.innerHTML = lineNumbersArray.join('\n');
+}
+
+// Helper to strip HTML tags from text (safety measure)
+function stripHTML(text) {
+  if (!text) return '';
+  // Create a temporary element and use textContent to strip HTML
+  const temp = document.createElement('div');
+  temp.innerHTML = text;
+  return temp.textContent || temp.innerText || '';
+}
+
+// SQL Syntax Highlighting
+function highlightSQL(sql) {
+  if (!sql) return '';
+  
+  // TEST: Return simple highlighted HTML to verify it's working
+  // Escape special HTML characters first
+  let escaped = sql.replace(/&/g, '&amp;')
+                   .replace(/</g, '&lt;')
+                   .replace(/>/g, '&gt;');
+  
+  // Simple keyword highlighting test
+  escaped = escaped.replace(/\b(SELECT|FROM|WHERE|LIMIT)\b/gi, '<span class="sql-keyword">$1</span>');
+  
+  return escaped;
+}
+
+function updateSyntaxHighlight() {
+  const syntaxHighlight = document.getElementById('syntaxHighlight');
+  if (!syntaxHighlight || !queryEditor) return;
+  
+  const sql = queryEditor.value;
+  const highlighted = highlightSQL(sql);
+  
+  console.log('SQL to highlight:', sql.substring(0, 100));
+  console.log('Highlighted HTML:', highlighted.substring(0, 200));
+  
+  syntaxHighlight.innerHTML = highlighted;
+  
+  // Sync scroll position
+  syntaxHighlight.scrollTop = queryEditor.scrollTop;
+  syntaxHighlight.scrollLeft = queryEditor.scrollLeft;
 }
 
 // Autocomplete for Shortcuts and SQL Tables/Views
