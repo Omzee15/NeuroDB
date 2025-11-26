@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('api', {
   createDatabase: (serverId, databaseName) => ipcRenderer.invoke('create-database', { serverId, databaseName }),
   getTableSchema: (connectionId, tableName) => ipcRenderer.invoke('get-table-schema', { connectionId, tableName }),
   generateDatabaseBackup: (databaseId) => ipcRenderer.invoke('generate-database-backup', databaseId),
+  generateDatabaseSchema: (databaseId) => ipcRenderer.invoke('generate-database-schema', databaseId),
   exportToExcel: (data, filename) => ipcRenderer.invoke('export-to-excel', { data, filename }),
   createTable: (connectionId, tableData) => ipcRenderer.invoke('create-table', connectionId, tableData),
   executeCreateTableSQL: (connectionId, sql) => ipcRenderer.invoke('execute-create-table-sql', connectionId, sql),

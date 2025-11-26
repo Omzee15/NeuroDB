@@ -476,10 +476,14 @@ function selectCellRange(startRow, startCol, endRow, endCol) {
 
 // Setup Event Listeners
 function handleDatabaseDisconnect() {
-  // Hide backup button
+  // Hide backup and schema buttons
   const backupBtn = document.getElementById('backupDatabaseBtn');
   if (backupBtn) {
     backupBtn.classList.add('hidden');
+  }
+  const schemaBtn = document.getElementById('downloadSchemaBtn');
+  if (schemaBtn) {
+    schemaBtn.classList.add('hidden');
   }
 
   // Reset connection state
@@ -798,10 +802,14 @@ async function closeConnectionTab(tabIndex) {
 }
 
 function setupEventListeners() {
-  // Hide backup button by default
+  // Hide backup and schema buttons by default
   const backupBtn = document.getElementById('backupDatabaseBtn');
   if (backupBtn) {
     backupBtn.classList.add('hidden');
+  }
+  const schemaBtn = document.getElementById('downloadSchemaBtn');
+  if (schemaBtn) {
+    schemaBtn.classList.add('hidden');
   }
 
   // File Operations
@@ -899,6 +907,14 @@ function setupEventListeners() {
     if (currentConnectionId) {
       const dbName = connections.find(c => c.id === currentConnectionId)?.name || 'database';
       downloadDatabaseBackup(currentConnectionId, dbName);
+    }
+  });
+
+  // Schema Download Button
+  document.getElementById('downloadSchemaBtn')?.addEventListener('click', () => {
+    if (currentConnectionId) {
+      const dbName = connections.find(c => c.id === currentConnectionId)?.name || 'database';
+      downloadDatabaseSchema(currentConnectionId, dbName);
     }
   });
   document.getElementById('testConnectionBtn')?.addEventListener('click', testConnection);
@@ -1761,10 +1777,14 @@ async function connectToDatabase(connectionId) {
       const newTabIndex = connectionTabs.length - 1;
       switchToTab(newTabIndex);
       
-      // Show backup button
+      // Show backup and schema buttons
       const backupBtn = document.getElementById('backupDatabaseBtn');
       if (backupBtn) {
         backupBtn.classList.remove('hidden');
+      }
+      const schemaBtn = document.getElementById('downloadSchemaBtn');
+      if (schemaBtn) {
+        schemaBtn.classList.remove('hidden');
       }
       
       welcomeScreen.classList.add('hidden');
@@ -2381,13 +2401,16 @@ function generateWhereQuery() {
     return;
   }
   
+  // Quote column name if it contains capital letters or special characters
+  const quotedColumn = quoteIdentifierIfNeeded(column);
+  
   // Build the WHERE clause
   let whereClause = '';
   let formattedValue = value;
   
   // Handle different operators
   if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
-    whereClause = `${column} ${operator}`;
+    whereClause = `${quotedColumn} ${operator}`;
   } else if (operator === 'IN' || operator === 'NOT IN') {
     if (!value) {
       showNotification('Please enter values for IN/NOT IN (comma-separated)', 'error');
@@ -2395,7 +2418,7 @@ function generateWhereQuery() {
     }
     // Parse comma-separated values and format them
     const values = value.split(',').map(v => `'${v.trim()}'`).join(', ');
-    whereClause = `${column} ${operator} (${values})`;
+    whereClause = `${quotedColumn} ${operator} (${values})`;
   } else {
     if (!value) {
       showNotification('Please enter a value', 'error');
@@ -2409,11 +2432,11 @@ function generateWhereQuery() {
       formattedValue = `'${value}'`;
     }
     
-    whereClause = `${column} ${operator} ${formattedValue}`;
+    whereClause = `${quotedColumn} ${operator} ${formattedValue}`;
   }
   
   // Generate the full query with properly formatted table name
-  const columnNames = selectedTableInfo.info.columns.map(c => c.name).join(',\n  ');
+  const columnNames = selectedTableInfo.info.columns.map(c => quoteIdentifierIfNeeded(c.name)).join(',\n  ');
   
   // Ensure proper table name formatting (schema.table_name)
   let tableName = selectedTableInfo.fullName;
@@ -4127,6 +4150,59 @@ async function downloadTableData(schemaName, tableName) {
 // Make functions global
 window.downloadDatabaseBackup = downloadDatabaseBackup;
 window.downloadTableData = downloadTableData;
+
+async function downloadDatabaseSchema(databaseId, databaseName) {
+  const downloadPopover = document.getElementById('downloadPopover');
+  const downloadTitle = document.getElementById('downloadTitle');
+  const downloadSubtitle = document.getElementById('downloadSubtitle');
+  
+  try {
+    // Show loading popover
+    downloadTitle.textContent = 'Downloading Database Schema';
+    downloadSubtitle.textContent = `Generating schema for ${databaseName}...`;
+    downloadPopover.classList.remove('hidden');
+    
+    const result = await window.api.generateDatabaseSchema(databaseId);
+    
+    if (result.success) {
+      downloadTitle.textContent = 'Saving Schema';
+      downloadSubtitle.textContent = 'Choose where to save...';
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const defaultFilename = `${databaseName}_schema_${timestamp}.sql`;
+      
+      // Use save dialog
+      const saveResult = await window.api.saveFile({
+        content: result.schema,
+        defaultPath: defaultFilename,
+        filters: [
+          { name: 'SQL Files', extensions: ['sql'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+      
+      // Hide loading popover
+      downloadPopover.classList.add('hidden');
+      
+      if (saveResult.success) {
+        showNotification('Database schema saved successfully', 'success');
+      } else if (!saveResult.canceled) {
+        showNotification('Failed to save schema: ' + saveResult.error, 'error');
+      }
+    } else {
+      // Hide loading popover
+      downloadPopover.classList.add('hidden');
+      showNotification('Failed to generate schema: ' + result.error, 'error');
+    }
+  } catch (error) {
+    // Hide loading popover
+    downloadPopover.classList.add('hidden');
+    console.error('Error downloading database schema:', error);
+    showNotification('Error downloading schema: ' + error.message, 'error');
+  }
+}
+
+window.downloadDatabaseSchema = downloadDatabaseSchema;
 
 // AI Operations
 

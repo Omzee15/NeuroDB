@@ -969,6 +969,207 @@ class DatabaseService {
     }
   }
 
+  async generateDatabaseSchema(databaseId) {
+    try {
+      console.log('Generating database schema for databaseId:', databaseId);
+      const pool = this.pools.get(databaseId);
+      if (!pool) {
+        throw new Error('Not connected to database');
+      }
+
+      const connection = this.getConnection(databaseId);
+      if (!connection) {
+        throw new Error('Connection not found');
+      }
+
+      let schemaSQL = '';
+      const timestamp = new Date().toISOString();
+      
+      // Add header
+      schemaSQL += `-- NeuroDB Database Schema (DDL Only)\n`;
+      schemaSQL += `-- Database: ${connection.database}\n`;
+      schemaSQL += `-- Host: ${connection.host}:${connection.port}\n`;
+      schemaSQL += `-- Generated: ${timestamp}\n`;
+      schemaSQL += `-- =====================================================\n\n`;
+
+      // Get all schemas
+      const schemasQuery = 'SELECT nspname as schema_name FROM pg_catalog.pg_namespace ' +
+        "WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
+        "AND nspname NOT LIKE 'pg_%' " +
+        'ORDER BY nspname';
+      
+      const schemasResult = await pool.query(schemasQuery);
+
+      for (const schemaRow of schemasResult.rows) {
+        const schemaName = schemaRow.schema_name;
+        
+        schemaSQL += `\n-- Schema: ${schemaName}\n`;
+        schemaSQL += `CREATE SCHEMA IF NOT EXISTS ${schemaName};\n\n`;
+
+        // Get tables in this schema
+        const tablesQuery = `
+          SELECT c.relname as table_name
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relkind = 'r'
+          AND n.nspname = $1
+          ORDER BY c.relname
+        `;
+        
+        const tablesResult = await pool.query(tablesQuery, [schemaName]);
+
+        for (const tableRow of tablesResult.rows) {
+          const tableName = tableRow.table_name;
+          const fullTableName = `${schemaName}.${tableName}`;
+
+          // Get table structure
+          const columnsQuery = `
+            SELECT 
+              a.attname as column_name,
+              format_type(a.atttypid, a.atttypmod) as data_type,
+              NOT a.attnotnull as is_nullable,
+              pg_get_expr(d.adbin, d.adrelid) as column_default
+            FROM pg_catalog.pg_attribute a
+            LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            WHERE a.attrelid = $1::regclass
+            AND a.attnum > 0
+            AND NOT a.attisdropped
+            ORDER BY a.attnum
+          `;
+
+          const columnsResult = await pool.query(columnsQuery, [fullTableName]);
+
+          // Build CREATE TABLE statement
+          schemaSQL += `-- Table: ${fullTableName}\n`;
+          schemaSQL += `DROP TABLE IF EXISTS ${fullTableName} CASCADE;\n`;
+          schemaSQL += `CREATE TABLE ${fullTableName} (\n`;
+
+          const columnDefs = columnsResult.rows.map((col, idx) => {
+            let def = `  ${col.column_name} ${col.data_type}`;
+            if (!col.is_nullable) {
+              def += ' NOT NULL';
+            }
+            if (col.column_default) {
+              def += ` DEFAULT ${col.column_default}`;
+            }
+            return def;
+          });
+
+          schemaSQL += columnDefs.join(',\n');
+
+          // Get primary keys
+          const pkQuery = `
+            SELECT a.attname as column_name
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY(con.conkey)
+            WHERE con.conrelid = $1::regclass
+            AND con.contype = 'p'
+          `;
+          
+          const pkResult = await pool.query(pkQuery, [fullTableName]);
+          
+          if (pkResult.rows.length > 0) {
+            const pkColumns = pkResult.rows.map(r => r.column_name).join(', ');
+            schemaSQL += `,\n  PRIMARY KEY (${pkColumns})`;
+          }
+
+          schemaSQL += `\n);\n\n`;
+
+          // Get indexes (excluding primary key indexes)
+          const indexQuery = `
+            SELECT 
+              i.relname as index_name,
+              ix.indisunique as is_unique,
+              string_agg(a.attname, ', ' ORDER BY array_position(ix.indkey, a.attnum)) as columns
+            FROM pg_catalog.pg_index ix
+            JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_catalog.pg_class c ON c.oid = ix.indrelid
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(ix.indkey)
+            WHERE c.oid = $1::regclass
+            AND NOT ix.indisprimary
+            GROUP BY i.relname, ix.indisunique
+          `;
+
+          const indexResult = await pool.query(indexQuery, [fullTableName]);
+          
+          for (const idx of indexResult.rows) {
+            const uniqueStr = idx.is_unique ? 'UNIQUE ' : '';
+            schemaSQL += `CREATE ${uniqueStr}INDEX ${idx.index_name} ON ${fullTableName} (${idx.columns});\n`;
+          }
+          
+          if (indexResult.rows.length > 0) {
+            schemaSQL += '\n';
+          }
+        }
+
+        // Get views
+        const viewsQuery = `
+          SELECT c.relname as view_name, pg_get_viewdef(c.oid, true) as view_definition
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relkind = 'v'
+          AND n.nspname = $1
+          ORDER BY c.relname
+        `;
+        
+        const viewsResult = await pool.query(viewsQuery, [schemaName]);
+
+        for (const viewRow of viewsResult.rows) {
+          const viewName = viewRow.view_name;
+          const fullViewName = `${schemaName}.${viewName}`;
+          
+          schemaSQL += `-- View: ${fullViewName}\n`;
+          schemaSQL += `DROP VIEW IF EXISTS ${fullViewName} CASCADE;\n`;
+          schemaSQL += `CREATE VIEW ${fullViewName} AS\n${viewRow.view_definition}\n\n`;
+        }
+      }
+
+      // Get foreign keys (add at the end to avoid dependency issues)
+      const fkQuery = `
+        SELECT
+          n1.nspname || '.' || c1.relname as table_name,
+          con.conname as constraint_name,
+          a1.attname as column_name,
+          n2.nspname || '.' || c2.relname as foreign_table_name,
+          a2.attname as foreign_column_name
+        FROM pg_catalog.pg_constraint con
+        JOIN pg_catalog.pg_class c1 ON con.conrelid = c1.oid
+        JOIN pg_catalog.pg_namespace n1 ON n1.oid = c1.relnamespace
+        JOIN pg_catalog.pg_class c2 ON con.confrelid = c2.oid
+        JOIN pg_catalog.pg_namespace n2 ON n2.oid = c2.relnamespace
+        JOIN pg_catalog.pg_attribute a1 ON a1.attrelid = c1.oid AND a1.attnum = ANY(con.conkey)
+        JOIN pg_catalog.pg_attribute a2 ON a2.attrelid = c2.oid AND a2.attnum = ANY(con.confkey)
+        WHERE con.contype = 'f'
+        AND n1.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+        AND n1.nspname NOT LIKE 'pg_%'
+        ORDER BY n1.nspname, c1.relname, con.conname
+      `;
+
+      const fkResult = await pool.query(fkQuery);
+
+      if (fkResult.rows.length > 0) {
+        schemaSQL += `\n-- Foreign Keys\n`;
+        for (const fk of fkResult.rows) {
+          schemaSQL += `ALTER TABLE ${fk.table_name} ADD CONSTRAINT ${fk.constraint_name} `;
+          schemaSQL += `FOREIGN KEY (${fk.column_name}) REFERENCES ${fk.foreign_table_name}(${fk.foreign_column_name});\n`;
+        }
+      }
+
+      schemaSQL += `\n-- Schema export completed: ${new Date().toISOString()}\n`;
+
+      return {
+        success: true,
+        schema: schemaSQL
+      };
+    } catch (error) {
+      console.error('Error generating database schema:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
   async createTable(connectionId, tableData) {
     try {
       const pool = this.pools.get(connectionId);

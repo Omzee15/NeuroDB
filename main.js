@@ -187,6 +187,10 @@ ipcMain.handle('generate-database-backup', async (event, databaseId) => {
   return dbService.generateDatabaseBackup(databaseId);
 });
 
+ipcMain.handle('generate-database-schema', async (event, databaseId) => {
+  return dbService.generateDatabaseSchema(databaseId);
+});
+
 ipcMain.handle('create-table', async (event, connectionId, tableData) => {
   try {
     const result = await dbService.createTable(connectionId, tableData);
