@@ -440,10 +440,18 @@ class DatabaseService {
         this.activeQueries.delete(queryId);
       }
       
+      // Check if the error is due to query cancellation
+      const isCancelled = error.message && (
+        error.message.includes('canceling statement') ||
+        error.message.includes('query canceled') ||
+        error.code === '57014' // PostgreSQL error code for query_canceled
+      );
+      
       return {
         success: false,
         error: error.message,
-        position: error.position
+        position: error.position,
+        cancelled: isCancelled
       };
     }
   }
@@ -468,16 +476,24 @@ class DatabaseService {
       
       try {
         // Cancel the query using pg_cancel_backend
-        await cancelClient.query('SELECT pg_cancel_backend($1)', [pid]);
+        const result = await cancelClient.query('SELECT pg_cancel_backend($1)', [pid]);
         
-        // Remove from active queries
-        this.activeQueries.delete(queryId);
+        console.log('Cancel query result:', result.rows[0]);
         
-        return { success: true, message: 'Query cancelled successfully' };
+        // pg_cancel_backend returns true if successful
+        const cancelled = result.rows[0]?.pg_cancel_backend;
+        
+        if (cancelled) {
+          // Keep in activeQueries for now - it will be removed when the query errors out
+          return { success: true, message: 'Query cancellation signal sent' };
+        } else {
+          return { success: false, error: 'Query may have already completed' };
+        }
       } finally {
         cancelClient.release();
       }
     } catch (error) {
+      console.error('Error cancelling query:', error);
       return { success: false, error: error.message };
     }
   }

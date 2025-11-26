@@ -2640,23 +2640,40 @@ async function executeQuery() {
       
       showNotification('Query executed successfully', 'success');
     } else {
-      resultsInfo.textContent = 'Error';
-      resultsTableContainer.innerHTML = `
-        <div class="no-results" style="color: var(--error);">
-          <strong>Error:</strong> ${result.error}
-          ${result.hint ? `<br><br><strong>Hint:</strong> ${result.hint}` : ''}
-        </div>
-      `;
-      // Disable export buttons on error
+      // Check if query was cancelled
+      if (result.cancelled) {
+        resultsInfo.textContent = 'Query cancelled';
+        resultsTableContainer.innerHTML = '<div class="no-results">Query execution was cancelled.</div>';
+        hideSearchControls();
+        showNotification('Query cancelled', 'warning');
+      } else {
+        resultsInfo.textContent = 'Error';
+        resultsTableContainer.innerHTML = `
+          <div class="no-results" style="color: var(--error);">
+            <strong>Error:</strong> ${result.error}
+            ${result.hint ? `<br><br><strong>Hint:</strong> ${result.hint}` : ''}
+          </div>
+        `;
+        // Disable export buttons on error
+        disableExportButtons();
+        
+        // Clear results from current tab on error
+        if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+          connectionTabs[activeTabIndex].queryResults = null;
+          connectionTabs[activeTabIndex].queryFields = null;
+        }
+        
+        showNotification('Query failed', 'error');
+      }
+      
+      // Disable export buttons on error/cancellation
       disableExportButtons();
       
-      // Clear results from current tab on error
+      // Clear results from current tab
       if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
         connectionTabs[activeTabIndex].queryResults = null;
         connectionTabs[activeTabIndex].queryFields = null;
       }
-      
-      showNotification('Query failed', 'error');
     }
   } catch (error) {
     // Check if this was a cancellation
@@ -2887,11 +2904,13 @@ function updateQueryExecutionUI(isExecuting) {
     executeQueryBtn.classList.add('hidden');
     stopQueryBtn.classList.remove('hidden');
     stopQueryBtn.disabled = false;
+    stopQueryBtn.textContent = 'Stop';
   } else {
     executeQueryBtn.disabled = false;
     executeQueryBtn.classList.remove('hidden');
     stopQueryBtn.classList.add('hidden');
     stopQueryBtn.disabled = true;
+    stopQueryBtn.textContent = 'Stop';
   }
 }
 
@@ -2903,14 +2922,25 @@ async function stopQuery() {
   }
   
   try {
+    // Disable the stop button immediately to prevent multiple clicks
+    stopQueryBtn.disabled = true;
+    stopQueryBtn.textContent = 'Cancelling...';
+    
     const result = await window.api.cancelQuery(currentQueryId);
+    
     if (result.success) {
-      showNotification('Query cancellation requested', 'info');
+      showNotification('Query cancellation requested - waiting for query to abort...', 'info');
     } else {
       showNotification(`Failed to cancel query: ${result.error}`, 'error');
+      // Re-enable the button if cancellation failed
+      stopQueryBtn.disabled = false;
+      stopQueryBtn.textContent = 'Stop';
     }
   } catch (error) {
     showNotification(`Error cancelling query: ${error.message}`, 'error');
+    // Re-enable the button if there was an error
+    stopQueryBtn.disabled = false;
+    stopQueryBtn.textContent = 'Stop';
   }
 }
 
