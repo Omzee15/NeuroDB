@@ -1276,6 +1276,14 @@ body.platform-linux .window-controls {
   color: #D4D4D4; /* Light gray for punctuation */
 }
 
+.sql-shortcut {
+  color: #C586C0; /* Purple/magenta for shortcuts */
+  font-weight: 500;
+  background: rgba(197, 134, 192, 0.1);
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
 /* Autocomplete Popover */
 .autocomplete-popover {
   position: absolute;

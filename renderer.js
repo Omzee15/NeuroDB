@@ -509,6 +509,8 @@ function handleDatabaseDisconnect() {
   
   // Clear query editor
   queryEditor.value = '';
+  updateLineNumbers();
+  updateSyntaxHighlight();
   
   // Show welcome screen if no connections
   if (!connections || connections.length === 0) {
@@ -773,6 +775,8 @@ async function closeConnectionTab(tabIndex) {
       currentConnectionId = null;
       currentSchema = null;
       queryEditor.value = '';
+      updateLineNumbers();
+      updateSyntaxHighlight();
       
       // Clear AI chat when no connections and reset placeholders
       aiChatContainer.innerHTML = '';
@@ -935,6 +939,7 @@ function setupEventListeners() {
   document.getElementById('clearEditorBtn')?.addEventListener('click', () => {
     queryEditor.value = '';
     updateLineNumbers();
+    updateSyntaxHighlight();
   });
   
   // Limit dropdown
@@ -4463,14 +4468,20 @@ async function generateSQL() {
     
     if (result.success) {
       queryEditor.value = result.query;
+      updateLineNumbers();
+      updateSyntaxHighlight();
       showNotification('SQL generated successfully', 'success');
       aiPrompt.value = '';
     } else {
       queryEditor.value = `-- Error: ${result.error}`;
+      updateLineNumbers();
+      updateSyntaxHighlight();
       showNotification('Failed to generate SQL', 'error');
     }
   } catch (error) {
     queryEditor.value = `-- Error: ${error.message}`;
+    updateLineNumbers();
+    updateSyntaxHighlight();
     showNotification('Error generating SQL', 'error');
   }
 }
@@ -5220,6 +5231,8 @@ function useSnippet(id) {
   if (snippet) {
     switchMainTab('query');
     queryEditor.value = snippet.query;
+    updateLineNumbers();
+    updateSyntaxHighlight();
     showNotification('Snippet loaded into editor', 'success');
   }
 }
@@ -6374,14 +6387,16 @@ function stripHTML(text) {
 function highlightSQL(sql) {
   if (!sql) return '';
   
-  // TEST: Return simple highlighted HTML to verify it's working
   // Escape special HTML characters first
   let escaped = sql.replace(/&/g, '&amp;')
                    .replace(/</g, '&lt;')
                    .replace(/>/g, '&gt;');
   
-  // Simple keyword highlighting test
-  escaped = escaped.replace(/\b(SELECT|FROM|WHERE|LIMIT)\b/gi, '<span class="sql-keyword">$1</span>');
+  // Highlight shortcuts {{shortcut}} first before other replacements
+  escaped = escaped.replace(/\{\{([^}]+)\}\}/g, '<span class="sql-shortcut">{{$1}}</span>');
+  
+  // Highlight SQL keywords
+  escaped = escaped.replace(/\b(SELECT|FROM|WHERE|LIMIT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TABLE|VIEW|INDEX|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AS|AND|OR|NOT|NULL|IS|IN|BETWEEN|LIKE|ORDER|BY|GROUP|HAVING|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END)\b/gi, '<span class="sql-keyword">$1</span>');
   
   return escaped;
 }
@@ -6630,6 +6645,7 @@ function selectAutocompleteItem() {
       matchStart + `{{${shortcut}}}`.length;
     
     updateLineNumbers();
+    updateSyntaxHighlight();
   } 
   // Check if this is a table/view selection
   else {
@@ -6654,6 +6670,7 @@ function selectAutocompleteItem() {
         keywordEnd + quotedTableName.length;
       
       updateLineNumbers();
+      updateSyntaxHighlight();
     }
   }
   
@@ -7341,6 +7358,7 @@ function renderQueryHistory(searchTerm = '') {
 function selectHistoryQuery(query) {
   queryEditor.value = query;
   updateLineNumbers();
+  updateSyntaxHighlight();
   closeQueryHistoryModal();
   showNotification('Query loaded from history', 'success');
 }
