@@ -130,6 +130,67 @@ class DatabaseService {
     return { success: true, database };
   }
 
+  // Create a new database on the specified server and register it locally
+  async createDatabase(serverId, databaseName) {
+    const server = this.servers.get(serverId);
+    if (!server) {
+      return { success: false, error: 'Server not found' };
+    }
+
+    // Connect to the default 'postgres' database to issue CREATE DATABASE
+    const poolConfig = {
+      host: server.host,
+      port: server.port,
+      database: 'postgres',
+      user: server.user,
+      password: server.password
+    };
+
+    if (server.ssl || server.sslmode) {
+      poolConfig.ssl = { rejectUnauthorized: false };
+    }
+
+    const pool = new Pool(poolConfig);
+
+    try {
+      // Check if database already exists
+      const existsRes = await pool.query('SELECT 1 FROM pg_database WHERE datname = $1', [databaseName]);
+      if (existsRes.rowCount > 0) {
+        // If it exists, register it locally and return
+        const database = {
+          id: Date.now().toString(),
+          serverId,
+          name: databaseName
+        };
+
+        this.databases.set(database.id, database);
+        this.saveConnections();
+        await pool.end();
+        return { success: true, database, existed: true };
+      }
+
+      // Quote the identifier properly to avoid syntax errors
+      const quotedName = this.quoteIdentifier(databaseName);
+
+      await pool.query(`CREATE DATABASE ${quotedName}`);
+      await pool.end();
+
+      const database = {
+        id: Date.now().toString(),
+        serverId,
+        name: databaseName
+      };
+
+      this.databases.set(database.id, database);
+      this.saveConnections();
+
+      return { success: true, database };
+    } catch (error) {
+      try { await pool.end(); } catch (e) { /* ignore */ }
+      return { success: false, error: error.message };
+    }
+  }
+
   // Connection Management Methods (Legacy + New)
   async getConnections() {
     return {

@@ -134,6 +134,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadTheme();
     setupEventListeners();
     setupDatabaseBrowserResize();
+    setupSidebarResize();
     applyTheme(currentTheme);
     updateLineNumbers();
     updateSyntaxHighlight();
@@ -1743,19 +1744,31 @@ async function openAddDatabaseModal(serverId) {
       
       listContainer.innerHTML = '';
       
-      // Add "Create New Database" button at the top
-      const createDbButton = document.createElement('button');
-      createDbButton.className = 'btn-primary';
-      createDbButton.style.width = '100%';
-      createDbButton.style.marginBottom = '12px';
-      createDbButton.innerHTML = `
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 6px;">
-          <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
-        </svg>
-        Create New Database
+      // Add "Create New Database" button with form at the top
+      const createNewItem = document.createElement('div');
+      createNewItem.className = 'database-item create-new';
+      createNewItem.innerHTML = `
+        <div class="database-item-content">
+          <div id="createDatabaseButton">
+            <button class="btn-primary" style="width: 100%; margin-bottom: 12px;" onclick="showCreateDatabaseForm('${serverId}')">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right: 6px;">
+                <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
+              </svg>
+              Create New Database
+            </button>
+          </div>
+          <div id="createDatabaseForm" class="hidden" style="margin-bottom: 12px;">
+            <div class="create-database-form">
+              <input type="text" id="newDatabaseName" placeholder="Enter database name" class="new-db-input" style="width: 100%; margin-bottom: 8px;">
+              <div class="form-actions" style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button class="btn-secondary btn-sm" onclick="hideCreateDatabaseForm()">Cancel</button>
+                <button class="btn-primary btn-sm" onclick="createNewDatabase('${serverId}')">Create</button>
+              </div>
+            </div>
+          </div>
+        </div>
       `;
-      createDbButton.onclick = () => showCreateDatabaseForm(serverId);
-      listContainer.appendChild(createDbButton);
+      listContainer.appendChild(createNewItem);
       
       if (availableDbs.length === 0) {
         const noDbsMsg = document.createElement('div');
@@ -5392,16 +5405,22 @@ async function listDatabasesOnServer(serverId) {
 }
 
 async function createNewDatabase(serverId) {
+  console.log('[DEBUG] createNewDatabase called with serverId:', serverId);
   const input = document.getElementById('newDatabaseName');
+  console.log('[DEBUG] input element:', input);
   const databaseName = input.value.trim();
+  console.log('[DEBUG] databaseName:', databaseName);
   
   if (!databaseName) {
+    console.log('[DEBUG] No database name provided');
     showNotification('Please enter a database name', 'error');
     return;
   }
   
   try {
+    console.log('[DEBUG] Calling window.api.createDatabase with:', { serverId, databaseName });
     const result = await window.api.createDatabase(serverId, databaseName);
+    console.log('[DEBUG] createDatabase result:', result);
     
     if (result.success) {
       showNotification('Database created successfully', 'success');
@@ -5441,21 +5460,28 @@ async function addDatabaseToConnections(serverId, databaseName) {
 }
 
 function showCreateDatabaseForm(serverId) {
+  console.log('[DEBUG] showCreateDatabaseForm called with serverId:', serverId);
   const createButton = document.getElementById('createDatabaseButton');
   const createForm = document.getElementById('createDatabaseForm');
+  console.log('[DEBUG] createButton:', createButton, 'createForm:', createForm);
   if (createButton && createForm) {
     createButton.classList.add('hidden');
     createForm.classList.remove('hidden');
     document.getElementById('newDatabaseName')?.focus();
+    console.log('[DEBUG] Form should now be visible');
+  } else {
+    console.log('[DEBUG] ERROR: Button or form not found!');
   }
 }
 
 function hideCreateDatabaseForm() {
+  console.log('[DEBUG] hideCreateDatabaseForm called');
   const createButton = document.getElementById('createDatabaseButton');
   const createForm = document.getElementById('createDatabaseForm');
   if (createButton && createForm) {
     createButton.classList.remove('hidden');
     createForm.classList.add('hidden');
+    console.log('[DEBUG] Form hidden, button visible');
   }
 }
 
@@ -6329,8 +6355,12 @@ function toggleSidebar() {
   
   sidebar.classList.toggle('hidden');
   
+  // Save collapsed state
+  const isHidden = sidebar.classList.contains('hidden');
+  localStorage.setItem('sidebarCollapsed', isHidden ? 'true' : 'false');
+  
   // Show/hide the show button in the title bar
-  if (sidebar.classList.contains('hidden')) {
+  if (isHidden) {
     if (icon) icon.style.transform = 'rotate(-90deg)';
     if (showBtn) showBtn.classList.remove('hidden');
   } else {
@@ -6349,8 +6379,12 @@ function toggleDBBrowser() {
   
   dbBrowser.classList.toggle('hidden');
   
+  // Save collapsed state
+  const isHidden = dbBrowser.classList.contains('hidden');
+  localStorage.setItem('dbBrowserCollapsed', isHidden ? 'true' : 'false');
+  
   // Show/hide the show button in the AI prompt bar
-  if (dbBrowser.classList.contains('hidden')) {
+  if (isHidden) {
     if (icon) icon.style.transform = 'rotate(-90deg)';
     if (showBtn) showBtn.classList.remove('hidden');
   } else {
@@ -8239,12 +8273,26 @@ function setupDatabaseBrowserResize() {
   let isResizing = false;
   let startX = 0;
   let startWidth = 0;
+  const collapseThreshold = 80; // Width below which to auto-collapse
   
   // Load saved width from localStorage
   const savedWidth = localStorage.getItem('dbBrowserWidth');
   if (savedWidth) {
     const width = Math.max(200, Math.min(600, parseInt(savedWidth)));
     dbBrowser.style.width = width + 'px';
+  }
+  
+  // Check if database browser was collapsed
+  const wasCollapsed = localStorage.getItem('dbBrowserCollapsed') === 'true';
+  if (wasCollapsed) {
+    dbBrowser.classList.add('hidden');
+    const showBtn = document.getElementById('showDBBrowserBtn');
+    if (showBtn) {
+      showBtn.classList.remove('hidden');
+    }
+    const toggleBtn = document.getElementById('toggleDBBrowserBtn');
+    const icon = toggleBtn?.querySelector('svg');
+    if (icon) icon.style.transform = 'rotate(-90deg)';
   }
   
   // Mouse down on resize handle
@@ -8275,8 +8323,12 @@ function setupDatabaseBrowserResize() {
     const minWidth = 200;  // Minimum width
     const maxWidth = 600;  // Maximum width
     
+    // Allow dragging below minimum for collapse detection
     if (width >= minWidth && width <= maxWidth) {
       dbBrowser.style.width = width + 'px';
+    } else if (width < minWidth) {
+      // Show visual feedback when approaching collapse threshold
+      dbBrowser.style.width = Math.max(0, width) + 'px';
     }
   });
   
@@ -8291,15 +8343,137 @@ function setupDatabaseBrowserResize() {
     document.body.style.userSelect = '';
     resizeHandle.classList.remove('active');
     
-    // Save width to localStorage
+    // Check if user dragged to collapse threshold
     const currentWidth = parseInt(document.defaultView.getComputedStyle(dbBrowser).width, 10);
-    localStorage.setItem('dbBrowserWidth', currentWidth);
+    
+    if (currentWidth < collapseThreshold) {
+      // Collapse the panel
+      dbBrowser.classList.add('hidden');
+      dbBrowser.style.width = '250px'; // Reset to default for next open
+      localStorage.setItem('dbBrowserCollapsed', 'true');
+      
+      // Show the "Show Database Browser" button
+      const showBtn = document.getElementById('showDBBrowserBtn');
+      if (showBtn) {
+        showBtn.classList.remove('hidden');
+      }
+    } else {
+      // Save width to localStorage
+      localStorage.setItem('dbBrowserWidth', currentWidth);
+    }
   });
   
   // Double-click to reset to default width
   resizeHandle.addEventListener('dblclick', () => {
     dbBrowser.style.width = '250px';
     localStorage.setItem('dbBrowserWidth', '250');
+  });
+}
+
+// Sidebar Resize Functionality
+function setupSidebarResize() {
+  const sidebar = document.querySelector('.sidebar');
+  const resizeHandle = document.getElementById('sidebarResizeHandle');
+  
+  if (!sidebar || !resizeHandle) {
+    return;
+  }
+  
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+  const collapseThreshold = 80; // Width below which to auto-collapse
+  
+  // Load saved width from localStorage
+  const savedWidth = localStorage.getItem('sidebarWidth');
+  if (savedWidth) {
+    const width = Math.max(150, Math.min(500, parseInt(savedWidth)));
+    sidebar.style.width = width + 'px';
+  }
+  
+  // Check if sidebar was collapsed
+  const wasCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+  if (wasCollapsed) {
+    sidebar.classList.add('hidden');
+    const showBtn = document.getElementById('showSidebarBtn');
+    if (showBtn) {
+      showBtn.classList.remove('hidden');
+    }
+  }
+  
+  // Mouse down on resize handle
+  resizeHandle.addEventListener('mousedown', (e) => {
+    // Don't allow resizing if sidebar is hidden
+    if (sidebar.classList.contains('hidden')) {
+      return;
+    }
+    
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = parseInt(document.defaultView.getComputedStyle(sidebar).width, 10);
+    
+    // Add visual feedback
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    resizeHandle.classList.add('active');
+    
+    // Prevent text selection during drag
+    e.preventDefault();
+  });
+  
+  // Mouse move - resize the panel
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    
+    const width = startWidth + e.clientX - startX;
+    const minWidth = 150;  // Minimum width
+    const maxWidth = 500;  // Maximum width
+    
+    // Allow dragging below minimum for collapse detection
+    if (width >= minWidth && width <= maxWidth) {
+      sidebar.style.width = width + 'px';
+    } else if (width < minWidth) {
+      // Show visual feedback when approaching collapse threshold
+      sidebar.style.width = Math.max(0, width) + 'px';
+    }
+  });
+  
+  // Mouse up - stop resizing
+  document.addEventListener('mouseup', () => {
+    if (!isResizing) return;
+    
+    isResizing = false;
+    
+    // Remove visual feedback
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    resizeHandle.classList.remove('active');
+    
+    // Check if user dragged to collapse threshold
+    const currentWidth = parseInt(document.defaultView.getComputedStyle(sidebar).width, 10);
+    
+    if (currentWidth < collapseThreshold) {
+      // Collapse the panel
+      sidebar.classList.add('hidden');
+      sidebar.style.width = '250px'; // Reset to default for next open
+      localStorage.setItem('sidebarCollapsed', 'true');
+      
+      // Show the "Show Sidebar" button
+      const showBtn = document.getElementById('showSidebarBtn');
+      if (showBtn) {
+        showBtn.classList.remove('hidden');
+      }
+    } else {
+      // Save width to localStorage
+      localStorage.setItem('sidebarWidth', currentWidth);
+      localStorage.setItem('sidebarCollapsed', 'false');
+    }
+  });
+  
+  // Double-click to reset to default width
+  resizeHandle.addEventListener('dblclick', () => {
+    sidebar.style.width = '250px';
+    localStorage.setItem('sidebarWidth', '250');
   });
 }
 
