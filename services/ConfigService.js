@@ -88,6 +88,31 @@ class ConfigService {
     };
     return this.saveConfig();
   }
+
+  // Query History Management
+  getQueryHistory() {
+    return this.config.queryHistory || [];
+  }
+
+  saveQueryHistory(history) {
+    // Keep only last 25 queries
+    const limitedHistory = history.slice(0, 25);
+    this.config.queryHistory = limitedHistory;
+    return this.saveConfig();
+  }
+
+  addQueryToHistory(queryItem) {
+    const history = this.getQueryHistory();
+    // Add to beginning
+    history.unshift(queryItem);
+    // Keep only last 25
+    return this.saveQueryHistory(history);
+  }
+
+  clearQueryHistory() {
+    this.config.queryHistory = [];
+    return this.saveConfig();
+  }
 }
 
 module.exports = ConfigService;

@@ -367,6 +367,47 @@ ipcMain.handle('set-api-key', async (event, apiKey) => {
   }
 });
 
+// Query History Management
+ipcMain.handle('get-query-history', async () => {
+  try {
+    const history = configService.getQueryHistory();
+    return { success: true, history };
+  } catch (error) {
+    console.error('Error getting query history:', error);
+    return { success: false, error: error.message, history: [] };
+  }
+});
+
+ipcMain.handle('save-query-history', async (event, history) => {
+  try {
+    const result = configService.saveQueryHistory(history);
+    return result;
+  } catch (error) {
+    console.error('Error saving query history:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('add-query-to-history', async (event, queryItem) => {
+  try {
+    const result = configService.addQueryToHistory(queryItem);
+    return result;
+  } catch (error) {
+    console.error('Error adding query to history:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('clear-query-history', async () => {
+  try {
+    const result = configService.clearQueryHistory();
+    return result;
+  } catch (error) {
+    console.error('Error clearing query history:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Window Controls
 ipcMain.handle('minimize-window', () => {
   if (mainWindow) {

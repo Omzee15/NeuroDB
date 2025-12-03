@@ -2402,6 +2402,7 @@ body.platform-linux .window-controls {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  user-select: text; /* Enable text selection in AI panel */
 }
 
 .ai-panel-header {
@@ -2431,6 +2432,7 @@ body.platform-linux .window-controls {
   display: flex;
   flex-direction: column;
   gap: 15px;
+  user-select: text; /* Enable text selection in chat */
 }
 
 .ai-welcome {
@@ -2440,6 +2442,8 @@ body.platform-linux .window-controls {
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-secondary);
+  user-select: text; /* Enable text selection */
+  cursor: text;
 }
 
 .ai-message {
@@ -2448,6 +2452,8 @@ body.platform-linux .window-controls {
   font-size: 13px;
   line-height: 1.6;
   max-width: 85%;
+  user-select: text; /* Enable text selection */
+  cursor: text;
 }
 
 .ai-message.user {
@@ -2469,6 +2475,8 @@ body.platform-linux .window-controls {
   overflow-x: auto;
   margin: 10px 0;
   font-size: 12px;
+  user-select: text; /* Enable text selection in code blocks */
+  cursor: text;
 }
 
 .ai-input-container {

@@ -132,6 +132,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     await loadConnections();
     await loadTheme();
+    await loadQueryHistory(); // Load persisted query history
     setupEventListeners();
     setupDatabaseBrowserResize();
     setupSidebarResize();
@@ -232,6 +233,29 @@ async function loadTheme() {
   } catch (error) {
     console.error('Error loading theme:', error);
     currentTheme = 'vscode-dark';
+  }
+}
+
+// Load Query History from file
+async function loadQueryHistory() {
+  try {
+    const result = await window.api.getQueryHistory();
+    if (result.success && result.history) {
+      queryHistory = result.history;
+      console.log(`Loaded ${queryHistory.length} queries from history`);
+    }
+  } catch (error) {
+    console.error('Error loading query history:', error);
+    queryHistory = [];
+  }
+}
+
+// Save Query History to file
+async function saveQueryHistory() {
+  try {
+    await window.api.saveQueryHistory(queryHistory);
+  } catch (error) {
+    console.error('Error saving query history:', error);
   }
 }
 
@@ -2524,32 +2548,10 @@ function generateWhereQuery() {
   // Generate the full query with properly formatted table name
   const columnNames = selectedTableInfo.info.columns.map(c => quoteIdentifierIfNeeded(c.name)).join(',\n  ');
   
-  // Ensure proper table name formatting (schema.table_name)
-  let tableName = selectedTableInfo.fullName;
-  
-  // If fullName contains more than one dot, it might be incorrectly formatted
-  // Extract just the schema and table name
-  const nameParts = tableName.split('.');
-  if (nameParts.length > 2) {
-    // Take the last two parts (schema.table)
-    tableName = `${nameParts[nameParts.length - 2]}.${nameParts[nameParts.length - 1]}`;
-  } else if (nameParts.length === 1) {
-    // If no schema specified, use just the table name
-    tableName = nameParts[0];
-  }
-  
-  // For table names that are PostgreSQL reserved words or contain special characters, quote them
-  const tableNameParts = tableName.split('.');
-  if (tableNameParts.length === 2) {
-    const [schema, table] = tableNameParts;
-    // Quote individual parts if they contain special characters or are reserved words
-    const quotedSchema = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema) ? schema : `"${schema}"`;
-    const quotedTable = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table) ? table : `"${table}"`;
-    tableName = `${quotedSchema}.${quotedTable}`;
-  } else {
-    // Single table name, quote if necessary
-    tableName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName) ? tableName : `"${tableName}"`;
-  }
+  // Format table name using the same quoting logic as selectTable
+  const quotedSchema = quoteIdentifierIfNeeded(selectedTableInfo.schema);
+  const quotedTable = quoteIdentifierIfNeeded(selectedTableInfo.name);
+  const tableName = `${quotedSchema}.${quotedTable}`;
   
   const query = `SELECT\n  ${columnNames}\nFROM ${tableName}\nWHERE ${whereClause}${currentLimit === 'all' ? '' : `\nLIMIT ${currentLimit}`};`;
   
@@ -2623,10 +2625,13 @@ async function executeQuery() {
     
     queryHistory.unshift(historyItem); // Add to beginning
     
-    // Keep only last 100 queries
-    if (queryHistory.length > 100) {
-      queryHistory = queryHistory.slice(0, 100);
+    // Keep only last 25 queries
+    if (queryHistory.length > 25) {
+      queryHistory = queryHistory.slice(0, 25);
     }
+    
+    // Save query history to file
+    saveQueryHistory();
     
     if (result.success) {
       resultsInfo.textContent = `${result.rowCount} rows in ${result.executionTime}ms`;
@@ -2714,6 +2719,14 @@ async function executeQuery() {
       };
       
       queryHistory.unshift(historyItem);
+      
+      // Keep only last 25 queries
+      if (queryHistory.length > 25) {
+        queryHistory = queryHistory.slice(0, 25);
+      }
+      
+      // Save query history to file
+      saveQueryHistory();
       
       resultsInfo.textContent = 'Error';
       resultsTableContainer.innerHTML = `<div class="no-results" style="color: var(--error);"><strong>Error:</strong> ${error.message}</div>`;
@@ -2831,10 +2844,13 @@ async function executeSelectedQuery() {
     
     queryHistory.unshift(historyItem); // Add to beginning
     
-    // Keep only last 100 queries
-    if (queryHistory.length > 100) {
-      queryHistory = queryHistory.slice(0, 100);
+    // Keep only last 25 queries
+    if (queryHistory.length > 25) {
+      queryHistory = queryHistory.slice(0, 25);
     }
+    
+    // Save query history to file
+    saveQueryHistory();
     
     if (result.success) {
       resultsInfo.textContent = `${result.rowCount} rows in ${result.executionTime}ms (selected text)`;
@@ -2887,6 +2903,14 @@ async function executeSelectedQuery() {
       };
       
       queryHistory.unshift(historyItem);
+      
+      // Keep only last 25 queries
+      if (queryHistory.length > 25) {
+        queryHistory = queryHistory.slice(0, 25);
+      }
+      
+      // Save query history to file
+      saveQueryHistory();
       
       resultsInfo.textContent = 'Error';
       resultsTableContainer.innerHTML = `<div class="no-results" style="color: var(--error);"><strong>Error:</strong> ${error.message}</div>`;
@@ -4475,6 +4499,8 @@ async function generateSQL() {
   
   showNotification('Generating SQL...', 'info');
   queryEditor.value = '-- Generating...';
+  updateLineNumbers();
+  updateSyntaxHighlight();
   
   try {
     const result = await window.api.generateSQL(prompt, activeAI.context.schema, activeAI.connectionId);
@@ -5417,21 +5443,44 @@ async function createNewDatabase(serverId) {
     return;
   }
   
+  // Get popover elements
+  const downloadPopover = document.getElementById('downloadPopover');
+  const downloadTitle = document.getElementById('downloadTitle');
+  const downloadSubtitle = document.getElementById('downloadSubtitle');
+  
   try {
+    // Show loading popover
+    downloadTitle.textContent = 'Creating Database';
+    downloadSubtitle.textContent = `Creating ${databaseName}...`;
+    downloadPopover.classList.remove('hidden');
+    
     console.log('[DEBUG] Calling window.api.createDatabase with:', { serverId, databaseName });
     const result = await window.api.createDatabase(serverId, databaseName);
     console.log('[DEBUG] createDatabase result:', result);
     
+    // Hide loading popover
+    downloadPopover.classList.add('hidden');
+    
     if (result.success) {
       showNotification('Database created successfully', 'success');
-      // Add the new database to connections
-      await addDatabaseToConnections(serverId, databaseName);
-      // Refresh the database list
-      await listDatabasesOnServer(serverId);
+      // Clear the input
+      input.value = '';
+      // Hide the form
+      hideCreateDatabaseForm();
+      // Reload connections to reflect the new database
+      await loadConnections();
+      // Check if we're in the add database modal and refresh it
+      const modal = document.getElementById('addDatabaseModal');
+      if (modal && !modal.classList.contains('hidden')) {
+        // Refresh the modal to show updated list
+        await openAddDatabaseModal(serverId);
+      }
     } else {
       showNotification(result.error || 'Failed to create database', 'error');
     }
   } catch (error) {
+    // Hide loading popover
+    downloadPopover.classList.add('hidden');
     console.error('Error creating database:', error);
     showNotification('Failed to create database', 'error');
   }
@@ -6426,11 +6475,18 @@ function highlightSQL(sql) {
                    .replace(/</g, '&lt;')
                    .replace(/>/g, '&gt;');
   
+  // Highlight SQL comments (-- style) - must be done before other highlights
+  // Match from -- to end of line
+  escaped = escaped.replace(/(--[^\n]*)/g, '<span class="sql-comment">$1</span>');
+  
   // Highlight shortcuts {{shortcut}} first before other replacements
   escaped = escaped.replace(/\{\{([^}]+)\}\}/g, '<span class="sql-shortcut">{{$1}}</span>');
   
-  // Highlight SQL keywords
-  escaped = escaped.replace(/\b(SELECT|FROM|WHERE|LIMIT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TABLE|VIEW|INDEX|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AS|AND|OR|NOT|NULL|IS|IN|BETWEEN|LIKE|ORDER|BY|GROUP|HAVING|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END)\b/gi, '<span class="sql-keyword">$1</span>');
+  // Highlight SQL keywords (but not if they're inside comment spans)
+  escaped = escaped.replace(/\b(SELECT|FROM|WHERE|LIMIT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TABLE|VIEW|INDEX|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AS|AND|OR|NOT|NULL|IS|IN|BETWEEN|LIKE|ORDER|BY|GROUP|HAVING|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END)\b/gi, (match) => {
+    // Check if this match is inside a comment span
+    return `<span class="sql-keyword">${match}</span>`;
+  });
   
   return escaped;
 }
@@ -6823,6 +6879,13 @@ function showCellPopover(event, columnName, fullValue, rowIndex, td) {
     <div class="cell-popover-view">
       <pre class="cell-content-display">${displayValue}</pre>
       <div class="cell-popover-actions">
+        <button class="btn-secondary btn-sm" onclick="copyCellValue(\`${escapedValue}\`, event)">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="10" height="10" rx="1"/>
+            <path d="M5 1h8a2 2 0 0 1 2 2v8"/>
+          </svg>
+          Copy
+        </button>
         <button class="btn-secondary btn-sm" onclick="startPopoverEdit('${columnName}', ${rowIndex}, \`${escapedValue}\`)">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2l2 2-8 8-4 1 1-4 8-8z"/>
@@ -6892,6 +6955,40 @@ function hideCellPopover() {
     document.removeEventListener('click', popover._handleOutsideClick);
     popover._handleOutsideClick = null;
   }
+}
+
+// Copy cell value to clipboard
+function copyCellValue(value, event) {
+  // Unescape the value for proper copying
+  const unescapedValue = String(value || '').replace(/\\'/g, "'").replace(/\\`/g, '`');
+  
+  // Get the button element
+  const button = event ? event.currentTarget : null;
+  
+  navigator.clipboard.writeText(unescapedValue)
+    .then(() => {
+      showNotification('Cell value copied to clipboard!', 'success');
+      
+      // Change button text to "Copied"
+      if (button) {
+        const originalHTML = button.innerHTML;
+        button.innerHTML = `
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 8l4 4 8-8"/>
+          </svg>
+          Copied
+        `;
+        
+        // Reset button text after 2 seconds
+        setTimeout(() => {
+          button.innerHTML = originalHTML;
+        }, 2000);
+      }
+    })
+    .catch(err => {
+      console.error('Failed to copy cell value:', err);
+      showNotification('Failed to copy to clipboard', 'error');
+    });
 }
 
 // Start editing in the popover
@@ -7398,9 +7495,11 @@ function selectHistoryQuery(query) {
 }
 
 function clearQueryHistory() {
-  if (confirm('Are you sure you want to clear all query history for this session?')) {
+  if (confirm('Are you sure you want to clear all query history?')) {
     queryHistory = [];
     renderQueryHistory();
+    // Clear from file
+    saveQueryHistory();
     showNotification('Query history cleared', 'success');
   }
 }

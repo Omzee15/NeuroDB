@@ -899,7 +899,10 @@ class DatabaseService {
 
         for (const tableRow of tablesResult.rows) {
           const tableName = tableRow.table_name;
-          const fullTableName = `${schemaName}.${tableName}`;
+          // Properly quote schema and table names for PostgreSQL
+          const quotedSchema = this.quoteIdentifier(schemaName);
+          const quotedTable = this.quoteIdentifier(tableName);
+          const fullTableName = `${quotedSchema}.${quotedTable}`;
 
           // Get table structure
           const columnsQuery = `
@@ -1097,7 +1100,10 @@ class DatabaseService {
 
         for (const tableRow of tablesResult.rows) {
           const tableName = tableRow.table_name;
-          const fullTableName = `${schemaName}.${tableName}`;
+          // Properly quote schema and table names for PostgreSQL
+          const quotedSchema = this.quoteIdentifier(schemaName);
+          const quotedTable = this.quoteIdentifier(tableName);
+          const fullTableName = `${quotedSchema}.${quotedTable}`;
 
           // Get table structure
           const columnsQuery = `

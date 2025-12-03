@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld('api', {
   getApiKeyStatus: () => ipcRenderer.invoke('get-api-key-status'),
   setApiKey: (apiKey) => ipcRenderer.invoke('set-api-key', apiKey),
 
+  // Query History Management
+  getQueryHistory: () => ipcRenderer.invoke('get-query-history'),
+  saveQueryHistory: (history) => ipcRenderer.invoke('save-query-history', history),
+  addQueryToHistory: (queryItem) => ipcRenderer.invoke('add-query-to-history', queryItem),
+  clearQueryHistory: () => ipcRenderer.invoke('clear-query-history'),
+
   // File Operations
   openFile: () => ipcRenderer.invoke('open-file'),
   saveFile: (options) => ipcRenderer.invoke('save-file', options),
