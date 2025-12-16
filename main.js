@@ -10,11 +10,13 @@ app.setName('NeuroDB');
 const DatabaseService = require('./services/DatabaseService');
 const AIService = require('./services/AIService');
 const ConfigService = require('./services/ConfigService');
+const SnippetService = require('./services/SnippetService');
 
 let mainWindow;
 const dbService = new DatabaseService();
 const configService = new ConfigService();
 const aiService = new AIService(configService);
+const snippetService = new SnippetService();
 
 function createWindow() {
   // Get the appropriate icon based on platform
@@ -404,6 +406,103 @@ ipcMain.handle('clear-query-history', async () => {
     return result;
   } catch (error) {
     console.error('Error clearing query history:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Snippet Management
+ipcMain.handle('get-snippets', async () => {
+  try {
+    const snippets = snippetService.getSnippets();
+    return { success: true, snippets };
+  } catch (error) {
+    console.error('Error getting snippets:', error);
+    return { success: false, error: error.message, snippets: [] };
+  }
+});
+
+ipcMain.handle('save-snippet', async (event, snippet) => {
+  try {
+    const result = snippetService.addSnippet(snippet);
+    return result;
+  } catch (error) {
+    console.error('Error saving snippet:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('update-snippet', async (event, { id, snippet }) => {
+  try {
+    const result = snippetService.updateSnippet(id, snippet);
+    return result;
+  } catch (error) {
+    console.error('Error updating snippet:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('delete-snippet', async (event, snippetId) => {
+  try {
+    const result = snippetService.deleteSnippet(snippetId);
+    return result;
+  } catch (error) {
+    console.error('Error deleting snippet:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('export-snippets', async () => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Snippets',
+      defaultPath: 'snippets.json',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true };
+    }
+
+    const exportResult = snippetService.exportSnippets(result.filePath);
+    return exportResult;
+  } catch (error) {
+    console.error('Error exporting snippets:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('import-snippets', async (event, replaceExisting = false) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import Snippets',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    const importResult = snippetService.importSnippets(result.filePaths[0], replaceExisting);
+    return importResult;
+  } catch (error) {
+    console.error('Error importing snippets:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('migrate-snippets-from-localstorage', async (event, localStorageData) => {
+  try {
+    const result = snippetService.migrateFromLocalStorage(localStorageData);
+    return result;
+  } catch (error) {
+    console.error('Error migrating snippets:', error);
     return { success: false, error: error.message };
   }
 });

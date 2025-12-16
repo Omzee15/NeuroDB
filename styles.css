@@ -1222,6 +1222,10 @@ body.platform-linux .window-controls {
   overflow-y: auto;
   position: relative;
   z-index: 2;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: normal;
+  pointer-events: auto;
 }
 
 .query-editor::placeholder {
@@ -1246,11 +1250,16 @@ body.platform-linux .window-controls {
   line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
+  word-break: normal;
   overflow-y: auto;
   overflow-x: hidden;
   pointer-events: none;
-  z-index: 1;
+  z-index: 3;
   color: var(--text-primary);
+}
+
+.syntax-highlight-overlay * {
+  pointer-events: none;
 }
 
 /* SQL Syntax Highlighting Colors */
@@ -1295,9 +1304,174 @@ body.platform-linux .window-controls {
 .sql-shortcut {
   color: #C586C0; /* Purple/magenta for shortcuts */
   font-weight: 500;
-  background: rgba(197, 134, 192, 0.1);
-  padding: 2px 4px;
-  border-radius: 3px;
+}
+
+.clickable-shortcut {
+  cursor: pointer;
+  pointer-events: auto !important;
+  position: relative;
+  display: inline-block;
+}
+
+.clickable-shortcut * {
+  pointer-events: auto !important;
+}
+
+.clickable-shortcut:hover {
+  text-decoration: underline;
+}
+
+.placeholder-warning {
+  color: #FFA500;
+  font-size: 12px;
+  margin-left: 4px;
+  vertical-align: middle;
+  display: inline-block;
+  pointer-events: none;
+}
+
+/* Placeholder Popover */
+.placeholder-popover {
+  position: fixed;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  min-width: 400px;
+  max-width: 600px;
+  z-index: 10000;
+  pointer-events: auto;
+}
+
+.placeholder-popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  border-radius: 8px 8px 0 0;
+}
+
+.placeholder-popover-header strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.placeholder-popover-shortcut {
+  font-size: 12px;
+  color: #C586C0;
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.placeholder-popover-body {
+  padding: 15px;
+}
+
+.placeholder-section {
+  margin-bottom: 15px;
+}
+
+.placeholder-section-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.placeholder-popover-query {
+  background: var(--bg-tertiary);
+  padding: 10px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.placeholder-preview-query {
+  background: var(--bg-tertiary);
+  padding: 12px;
+  border-radius: 6px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  min-height: 60px;
+}
+
+.preview-value {
+  color: #4EC9B0;
+  font-weight: 700;
+  background: rgba(78, 201, 176, 0.25);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.preview-missing {
+  color: #FFA500;
+  font-weight: 700;
+  background: rgba(255, 165, 0, 0.25);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.placeholder-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.placeholder-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.placeholder-input-row label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  min-width: 100px;
+  font-weight: 500;
+}
+
+.placeholder-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 13px;
+}
+
+.placeholder-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.placeholder-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
 }
 
 /* Autocomplete Popover */
@@ -1980,7 +2154,7 @@ body.platform-linux .window-controls {
 .results-table-container {
   flex: 1;
   overflow: auto;
-  padding: 0 0 20px 0; /* Add bottom padding to ensure last row is visible */
+  padding: 0 0 100px 0; /* Add generous bottom padding to ensure last rows are fully scrollable */
   box-sizing: border-box; /* Include padding in height calculation */
   min-height: 0; /* Ensure flexbox allows shrinking */
   display: block; /* Use block layout instead of flex */
@@ -2992,7 +3166,10 @@ body.platform-linux .window-controls {
 /* Snippets and Variables Styles */
 .snippets-container, .variables-container {
   padding: 20px;
+  height: 100%;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .snippets-header, .variables-header {
@@ -3000,6 +3177,7 @@ body.platform-linux .window-controls {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  flex-shrink: 0;
 }
 
 .snippets-header h3, .variables-header h3 {
@@ -3011,6 +3189,9 @@ body.platform-linux .window-controls {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 .snippet-item, .variable-item {

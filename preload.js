@@ -57,6 +57,15 @@ contextBridge.exposeInMainWorld('api', {
   addQueryToHistory: (queryItem) => ipcRenderer.invoke('add-query-to-history', queryItem),
   clearQueryHistory: () => ipcRenderer.invoke('clear-query-history'),
 
+  // Snippet Management
+  getSnippets: () => ipcRenderer.invoke('get-snippets'),
+  saveSnippet: (snippet) => ipcRenderer.invoke('save-snippet', snippet),
+  updateSnippet: (id, snippet) => ipcRenderer.invoke('update-snippet', { id, snippet }),
+  deleteSnippet: (snippetId) => ipcRenderer.invoke('delete-snippet', snippetId),
+  exportSnippets: () => ipcRenderer.invoke('export-snippets'),
+  importSnippets: (replaceExisting) => ipcRenderer.invoke('import-snippets', replaceExisting),
+  migrateSnippetsFromLocalStorage: (localStorageData) => ipcRenderer.invoke('migrate-snippets-from-localstorage', localStorageData),
+
   // File Operations
   openFile: () => ipcRenderer.invoke('open-file'),
   saveFile: (options) => ipcRenderer.invoke('save-file', options),

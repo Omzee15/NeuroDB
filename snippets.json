@@ -1,0 +1,53 @@
+{
+  "snippets": [
+    {
+      "id": "1761071716168",
+      "name": "common db entereies",
+      "shortcut": "commondb",
+      "query": "SELECT id, common_db_uid, key, value\nFROM public.common_db",
+      "description": ""
+    },
+    {
+      "id": "1762851115964",
+      "name": "calls count and sms count",
+      "shortcut": "target_call_sms",
+      "query": "SELECT\n  t.target_number,\n  t.target_uid,\n  COUNT(DISTINCT s.id) AS number_of_sms,\n  COUNT(DISTINCT c.id) AS number_of_calls\nFROM target AS t\nLEFT JOIN sms AS s\n  ON t.id = s.target_id\nLEFT JOIN call AS c\n  ON t.id = c.target_id\nGROUP BY\n  t.id,\n  t.target_number,\n  t.target_uid;",
+      "description": "calls and sms against targets"
+    },
+    {
+      "id": "1765178571161",
+      "name": "user analysis",
+      "shortcut": "user_analysis",
+      "query": "SELECT\n  user_analysis.user_uid,\n  user_analysis.user_name,\n  SUM(user_analysis.total_ingested) AS total_ingested_sum,\n  SUM(user_analysis.total_success) AS total_success_sum,\n  SUM(user_analysis.total_failed) AS total_failed_sum,\n  SUM(user_analysis.total_validation_failed) AS total_validation_failed_sum,\n  SUM(user_analysis.total_calls) AS total_calls_sum,\n  SUM(user_analysis.total_sms) AS total_sms_sum,\n  SUM(user_analysis.total_duration_seconds) AS total_duration_seconds_sum,\n  SUM(user_analysis.total_suspicious_duration) AS total_suspicious_duration_sum,\n  SUM(user_analysis.call_critical) AS call_critical_sum,\n  SUM(user_analysis.call_high_critical) AS call_high_critical_sum,\n  SUM(user_analysis.call_mid_critical) AS call_mid_critical_sum,\n  SUM(user_analysis.call_low_critical) AS call_low_critical_sum,\n  SUM(user_analysis.call_not_critical) AS call_not_critical_sum,\n  SUM(user_analysis.sms_critical) AS sms_critical_sum,\n  SUM(user_analysis.sms_high_critical) AS sms_high_critical_sum,\n  SUM(user_analysis.sms_mid_critical) AS sms_mid_critical_sum,\n  SUM(user_analysis.sms_low_critical) AS sms_low_critical_sum,\n  SUM(user_analysis.sms_not_critical) AS sms_not_critical_sum\nFROM user_analysis\nGROUP BY\n  user_analysis.user_uid,\n  user_analysis.user_name\nORDER BY\n  user_analysis.user_name;",
+      "description": ""
+    },
+    {
+      "id": "1765178965437",
+      "name": "call analysis",
+      "shortcut": "call_analysis",
+      "query": "SELECT\n  SUM(total_calls) AS total_calls_sum,\n  SUM(total_ingested) AS total_ingested_sum,\n  SUM(total_success) AS total_success_sum,\n  SUM(total_failed) AS total_failed_sum,\n  SUM(total_validation_failed) AS total_validation_failed_sum,\n  SUM(total_duration_seconds) AS total_duration_seconds_sum,\n  SUM(total_suspicious_duration) AS total_suspicious_duration_sum,\n  SUM(total_critical) AS total_critical_sum,\n  SUM(total_high_critical) AS total_high_critical_sum,\n  SUM(total_mid_critical) AS total_mid_critical_sum,\n  SUM(total_low_critical) AS total_low_critical_sum,\n  SUM(total_not_critical) AS total_not_critical_sum\nFROM call_analysis;",
+      "description": "aggreation from call analysis field"
+    },
+    {
+      "id": "1765188925406",
+      "name": "calls against target",
+      "shortcut": "target_calls",
+      "query": "SELECT\n  c.id,\n  c.call_uid,\n  c.call_datetime,\n  c.duration,\n  c.type,\n  c.category,\n  c.criticality,\n  c.comment,\n  c.summary,\n  c.audio_file,\n  c.meta_file,\n  c.target_id,\n  c.call_read_status,\n  c.call_endtime,\n  c.start_location,\n  c.end_location,\n  c.is_active,\n  c.created_at,\n  c.created_by,\n  c.updated_at,\n  c.updated_by,\n  c.concise_summary\nFROM call AS c\nJOIN target AS t\n  ON c.target_id = t.id\nWHERE\n  t.target_number = '{target number}'\nLIMIT 1000;",
+      "description": "show all calls against the given target number"
+    },
+    {
+      "id": "1765190280432",
+      "name": "call hunt",
+      "shortcut": "find_call",
+      "query": "SELECT\n  c.id,\n  c.call_uid,\n  c.call_datetime,\n  c.duration,\n  c.type,\n  c.category,\n  c.criticality,\n  c.comment,\n  c.summary,\n  f.name AS audio_file_name,\n  t.target_number,\n  t.full_name AS target_full_name\nFROM call AS c\nJOIN file AS f\n  ON c.audio_file = f.id\nJOIN target AS t\n  ON c.target_id = t.id\nWHERE\n  f.name = '{filename}' AND t.target_number = '{target number}';",
+      "description": "search a call using its file name and target number "
+    },
+    {
+      "id": "1765191612712",
+      "name": "find call by id ",
+      "shortcut": "wherecall",
+      "query": "selecT * from call where id = {call id}",
+      "description": ""
+    }
+  ]
+}

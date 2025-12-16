@@ -1125,6 +1125,8 @@ function setupEventListeners() {
   
   // Snippets
   document.getElementById('addSnippetBtn')?.addEventListener('click', () => openSnippetModal());
+  document.getElementById('exportSnippetsBtn')?.addEventListener('click', exportSnippets);
+  document.getElementById('importSnippetsBtn')?.addEventListener('click', importSnippets);
   document.getElementById('closeSnippetModal')?.addEventListener('click', () => {
     document.getElementById('snippetModal').classList.add('hidden');
   });
@@ -5062,15 +5064,44 @@ function showNotification(message, type = 'info') {
 // ===== NEW FEATURES =====
 
 // Load Snippets and Variables from localStorage
-function loadSnippets() {
+async function loadSnippets() {
   try {
-    const saved = localStorage.getItem('neurodb_snippets');
-    snippets = saved ? JSON.parse(saved) : [];
+    // First, try to migrate from localStorage if it exists and file storage is empty
+    const localStorageSnippets = localStorage.getItem('neurodb_snippets');
+    
+    const result = await window.api.getSnippets();
+    if (result.success) {
+      snippets = result.snippets || [];
+      
+      // If file storage is empty but localStorage has data, migrate it
+      if (snippets.length === 0 && localStorageSnippets) {
+        const localSnippets = JSON.parse(localStorageSnippets);
+        if (localSnippets.length > 0) {
+          console.log('Migrating snippets from localStorage to file storage...');
+          const migrateResult = await window.api.migrateSnippetsFromLocalStorage(localSnippets);
+          if (migrateResult.success) {
+            snippets = localSnippets;
+            // Clear localStorage after successful migration
+            localStorage.removeItem('neurodb_snippets');
+            showNotification('Snippets migrated to file storage', 'info');
+          }
+        }
+      }
+    } else {
+      // Fallback to localStorage if file storage fails
+      snippets = localStorageSnippets ? JSON.parse(localStorageSnippets) : [];
+    }
     renderSnippets();
   } catch (error) {
     console.error('Error loading snippets:', error);
     showNotification('Error loading snippets', 'error');
-    snippets = [];
+    // Fallback to localStorage
+    try {
+      const saved = localStorage.getItem('neurodb_snippets');
+      snippets = saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      snippets = [];
+    }
   }
 }
 
@@ -5086,8 +5117,15 @@ function loadVariables() {
   }
 }
 
-function saveSnippets() {
-  localStorage.setItem('neurodb_snippets', JSON.stringify(snippets));
+async function saveSnippets() {
+  // This function is kept for backwards compatibility but is no longer needed
+  // Individual snippets are now saved via IPC in saveSnippet() and deleteSnippet()
+  // Just keep localStorage as a backup
+  try {
+    localStorage.setItem('neurodb_snippets', JSON.stringify(snippets));
+  } catch (error) {
+    console.error('Error backing up snippets to localStorage:', error);
+  }
 }
 
 function saveVariables() {
@@ -5224,29 +5262,48 @@ function openSnippetModal(snippet = null) {
   modal.classList.remove('hidden');
 }
 
-function saveSnippet(event) {
+async function saveSnippet(event) {
   event.preventDefault();
   
-  const id = document.getElementById('snippetId').value || Date.now().toString();
+  const id = document.getElementById('snippetId').value;
   const snippet = {
-    id,
     name: document.getElementById('snippetName').value,
     shortcut: document.getElementById('snippetShortcut').value.toLowerCase().replace(/\s/g, ''),
     query: document.getElementById('snippetQuery').value,
     description: document.getElementById('snippetDescription').value
   };
   
-  const index = snippets.findIndex(s => s.id === id);
-  if (index >= 0) {
-    snippets[index] = snippet;
-  } else {
-    snippets.push(snippet);
+  try {
+    let result;
+    if (id) {
+      // Update existing snippet
+      snippet.id = id;
+      result = await window.api.updateSnippet(id, snippet);
+      if (result.success) {
+        const index = snippets.findIndex(s => s.id === id);
+        if (index >= 0) {
+          snippets[index] = result.snippet;
+        }
+      }
+    } else {
+      // Add new snippet
+      result = await window.api.saveSnippet(snippet);
+      if (result.success) {
+        snippets.push(result.snippet);
+      }
+    }
+    
+    if (result.success) {
+      renderSnippets();
+      document.getElementById('snippetModal').classList.add('hidden');
+      showNotification('Snippet saved successfully', 'success');
+    } else {
+      showNotification('Error saving snippet: ' + result.error, 'error');
+    }
+  } catch (error) {
+    console.error('Error saving snippet:', error);
+    showNotification('Error saving snippet', 'error');
   }
-  
-  saveSnippets();
-  renderSnippets();
-  document.getElementById('snippetModal').classList.add('hidden');
-  showNotification('Snippet saved successfully', 'success');
 }
 
 function editSnippet(id) {
@@ -5256,12 +5313,21 @@ function editSnippet(id) {
   }
 }
 
-function deleteSnippet(id) {
+async function deleteSnippet(id) {
   if (confirm('Are you sure you want to delete this snippet?')) {
-    snippets = snippets.filter(s => s.id !== id);
-    saveSnippets();
-    renderSnippets();
-    showNotification('Snippet deleted', 'success');
+    try {
+      const result = await window.api.deleteSnippet(id);
+      if (result.success) {
+        snippets = snippets.filter(s => s.id !== id);
+        renderSnippets();
+        showNotification('Snippet deleted', 'success');
+      } else {
+        showNotification('Error deleting snippet: ' + result.error, 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting snippet:', error);
+      showNotification('Error deleting snippet', 'error');
+    }
   }
 }
 
@@ -5273,6 +5339,44 @@ function useSnippet(id) {
     updateLineNumbers();
     updateSyntaxHighlight();
     showNotification('Snippet loaded into editor', 'success');
+  }
+}
+
+async function exportSnippets() {
+  try {
+    const result = await window.api.exportSnippets();
+    if (result.success) {
+      showNotification(`Successfully exported ${result.count} snippet${result.count !== 1 ? 's' : ''}`, 'success');
+    } else if (!result.canceled) {
+      showNotification('Error exporting snippets: ' + result.error, 'error');
+    }
+  } catch (error) {
+    console.error('Error exporting snippets:', error);
+    showNotification('Error exporting snippets', 'error');
+  }
+}
+
+async function importSnippets() {
+  try {
+    // Always merge (add new snippets to existing ones)
+    const replaceExisting = false;
+    
+    const result = await window.api.importSnippets(replaceExisting);
+    if (result.success) {
+      // Reload snippets from the server
+      await loadSnippets();
+      const addedCount = result.imported - (result.count - snippets.length);
+      showNotification(
+        `Successfully added ${result.imported} new snippet${result.imported !== 1 ? 's' : ''}. ` +
+        `Total: ${result.count}`,
+        'success'
+      );
+    } else if (!result.canceled) {
+      showNotification('Error importing snippets: ' + result.error, 'error');
+    }
+  } catch (error) {
+    console.error('Error importing snippets:', error);
+    showNotification('Error importing snippets', 'error');
   }
 }
 
@@ -5349,6 +5453,43 @@ function replacePlaceholders(query) {
   });
   
   // Replace snippets
+  // First handle snippet invocations with arguments: {{shortcut(arg1,arg2)}}
+  processedQuery = processedQuery.replace(/\{\{\s*([A-Za-z0-9_]+)\s*\(([^}]*)\)\s*\}\}/g, (match, shortcut, argsText) => {
+    const snippet = snippets.find(s => s.shortcut === shortcut);
+    if (!snippet) return match; // leave unchanged if not found
+
+    // Split args by comma, but allow commas inside quotes by a simple split and trim
+    const rawArgs = argsText.split(',').map(a => a.trim()).filter(a => a.length > 0);
+
+    let result = snippet.query;
+
+    // Replace both {key_name} and ? placeholders in order with provided args
+    if (rawArgs.length > 0) {
+      let argIndex = 0;
+      
+      // Replace {key_name} style placeholders (supports spaces and special chars)
+      result = result.replace(/\{([^}]+)\}/g, () => {
+        if (argIndex < rawArgs.length) {
+          const value = rawArgs[argIndex++];
+          return value;
+        }
+        return '?'; // If not enough args, leave as ?
+      });
+      
+      // Then replace any remaining ? placeholders
+      result = result.replace(/\?/g, () => {
+        if (argIndex < rawArgs.length) {
+          const value = rawArgs[argIndex++];
+          return value;
+        }
+        return '?'; // If not enough args, leave as ?
+      });
+    }
+
+    return result;
+  });
+
+  // Then handle simple snippet inclusions without args: {{shortcut}}
   snippets.forEach(s => {
     const regex = new RegExp(`\\{\\{${s.shortcut}\\}\\}`, 'g');
     processedQuery = processedQuery.replace(regex, s.query);
@@ -6479,8 +6620,49 @@ function highlightSQL(sql) {
   // Match from -- to end of line
   escaped = escaped.replace(/(--[^\n]*)/g, '<span class="sql-comment">$1</span>');
   
-  // Highlight shortcuts {{shortcut}} first before other replacements
-  escaped = escaped.replace(/\{\{([^}]+)\}\}/g, '<span class="sql-shortcut">{{$1}}</span>');
+  // Highlight shortcuts {{shortcut}} or {{shortcut(args)}} with placeholder detection
+  escaped = escaped.replace(/\{\{([^}]+)\}\}/g, (match, content) => {
+    // Check if it's a parameterized call: shortcut(args)
+    const paramMatch = content.match(/^([A-Za-z0-9_]+)\s*\(([^)]*)\)$/);
+    
+    if (paramMatch) {
+      const shortcut = paramMatch[1];
+      const argsText = paramMatch[2];
+      const snippet = snippets.find(s => s.shortcut === shortcut);
+      
+      if (snippet) {
+        // Count {key_name} and ? placeholders in snippet query (supports any characters in placeholder names)
+        const namedPlaceholderCount = (snippet.query.match(/\{[^}]+\}/g) || []).length;
+        const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;
+        const totalPlaceholderCount = namedPlaceholderCount + questionPlaceholderCount;
+        
+        // Count provided args
+        const args = argsText.split(',').map(a => a.trim()).filter(a => a.length > 0);
+        const hasUnfilledPlaceholders = args.length < totalPlaceholderCount;
+        
+        const warningIcon = hasUnfilledPlaceholders ? 
+          '<span class="placeholder-warning" title="Missing placeholder values">⚠️</span>' : '';
+        
+        return `<span class="sql-shortcut clickable-shortcut" data-shortcut="${shortcut}" data-args="${argsText.replace(/"/g, '&quot;')}" data-has-params="true">{{${content}}}${warningIcon}</span>`;
+      }
+    }
+    
+    // Check if it's a simple shortcut that has placeholders
+    const snippet = snippets.find(s => s.shortcut === content);
+    if (snippet) {
+      const namedPlaceholderCount = (snippet.query.match(/\{[^}]+\}/g) || []).length;
+      const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;
+      const totalPlaceholderCount = namedPlaceholderCount + questionPlaceholderCount;
+      
+      if (totalPlaceholderCount > 0) {
+        const warningIcon = '<span class="placeholder-warning" title="Missing placeholder values">⚠️</span>';
+        
+        return `<span class="sql-shortcut clickable-shortcut" data-shortcut="${content}" data-args="" data-has-params="true">{{${content}}}${warningIcon}</span>`;
+      }
+    }
+    
+    return `<span class="sql-shortcut">{{${content}}}</span>`;
+  });
   
   // Highlight SQL keywords (but not if they're inside comment spans)
   escaped = escaped.replace(/\b(SELECT|FROM|WHERE|LIMIT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TABLE|VIEW|INDEX|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|ON|AS|AND|OR|NOT|NULL|IS|IN|BETWEEN|LIKE|ORDER|BY|GROUP|HAVING|DISTINCT|UNION|ALL|CASE|WHEN|THEN|ELSE|END)\b/gi, (match) => {
@@ -6503,9 +6685,220 @@ function updateSyntaxHighlight() {
   
   syntaxHighlight.innerHTML = highlighted;
   
+  // Add click handlers to clickable shortcuts
+  const clickableShortcuts = syntaxHighlight.querySelectorAll('.clickable-shortcut');
+  clickableShortcuts.forEach(element => {
+    element.style.cursor = 'pointer';
+    element.addEventListener('click', handleShortcutClick);
+  });
+  
   // Sync scroll position
   syntaxHighlight.scrollTop = queryEditor.scrollTop;
   syntaxHighlight.scrollLeft = queryEditor.scrollLeft;
+}
+
+// Handle click on shortcut with placeholders
+function handleShortcutClick(event) {
+  event.stopPropagation();
+  const element = event.currentTarget;
+  const shortcut = element.dataset.shortcut;
+  const argsText = element.dataset.args || '';
+  
+  const snippet = snippets.find(s => s.shortcut === shortcut);
+  if (!snippet) return;
+  
+  // Extract placeholder names from {key_name} and count ? placeholders (supports any characters)
+  const namedPlaceholders = [];
+  const namedMatches = snippet.query.matchAll(/\{([^}]+)\}/g);
+  for (const match of namedMatches) {
+    namedPlaceholders.push(match[1]);
+  }
+  
+  const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;
+  
+  // Add generic names for ? placeholders
+  for (let i = 0; i < questionPlaceholderCount; i++) {
+    namedPlaceholders.push(`param_${i + 1}`);
+  }
+  
+  if (namedPlaceholders.length === 0) return;
+  
+  // Parse current args
+  const currentArgs = argsText.split(',').map(a => a.trim());
+  
+  // Show popover
+  showPlaceholderPopover(element, snippet, currentArgs, namedPlaceholders);
+}
+
+// Show popover for editing placeholder values
+function showPlaceholderPopover(element, snippet, currentArgs, placeholderNames) {
+  // Remove existing popover
+  const existingPopover = document.getElementById('placeholderPopover');
+  if (existingPopover) {
+    existingPopover.remove();
+  }
+  
+  // Create popover
+  const popover = document.createElement('div');
+  popover.id = 'placeholderPopover';
+  popover.className = 'placeholder-popover';
+  
+  let html = `
+    <div class="placeholder-popover-header">
+      <div>
+        <strong>${snippet.name}</strong>
+        <div class="placeholder-popover-shortcut">{{${snippet.shortcut}}}</div>
+      </div>
+      <button class="btn-icon" onclick="document.getElementById('placeholderPopover').remove()">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+    <div class="placeholder-popover-body">
+      <div class="placeholder-section">
+        <label class="placeholder-section-label">Query Preview:</label>
+        <div class="placeholder-preview-query" id="placeholderPreview"></div>
+      </div>
+      <div class="placeholder-inputs">
+  `;
+  
+  for (let i = 0; i < placeholderNames.length; i++) {
+    const value = currentArgs[i] || '';
+    const placeholderName = placeholderNames[i];
+    html += `
+      <div class="placeholder-input-row">
+        <label>${placeholderName}:</label>
+        <input type="text" class="placeholder-input" data-index="${i}" value="${value.replace(/"/g, '&quot;')}" placeholder="Enter value for ${placeholderName}">
+      </div>
+    `;
+  }
+  
+  html += `
+      </div>
+      <div class="placeholder-popover-actions">
+        <button class="btn-secondary" onclick="document.getElementById('placeholderPopover').remove()">Cancel</button>
+        <button class="btn-primary" onclick="applyPlaceholderValues('${snippet.shortcut}')">Apply</button>
+      </div>
+    </div>
+  `;
+  
+  popover.innerHTML = html;
+  
+  // Position popover fixed to viewport, near the clicked element
+  const rect = element.getBoundingClientRect();
+  
+  popover.style.position = 'fixed';
+  popover.style.left = `${rect.left + 20}px`;
+  popover.style.top = `${rect.bottom + 5}px`;
+  popover.style.zIndex = '10000';
+  
+  // Adjust position if it goes off screen
+  document.body.appendChild(popover);
+  
+  // Check if popover goes off right edge
+  setTimeout(() => {
+    const popoverRect = popover.getBoundingClientRect();
+    if (popoverRect.right > window.innerWidth) {
+      popover.style.left = `${window.innerWidth - popoverRect.width - 20}px`;
+    }
+    // Check if popover goes off bottom edge
+    if (popoverRect.bottom > window.innerHeight) {
+      popover.style.top = `${rect.top - popoverRect.height - 5}px`;
+    }
+  }, 10);
+  
+  // Add event listeners to all inputs for live preview
+  const inputs = popover.querySelectorAll('.placeholder-input');
+  inputs.forEach(input => {
+    input.addEventListener('input', () => {
+      updatePlaceholderPreview(snippet.query);
+    });
+    
+    // Add Enter key handler to apply values
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyPlaceholderValues(snippet.shortcut);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        popover.remove();
+      }
+    });
+  });
+  
+  // Initial preview update
+  updatePlaceholderPreview(snippet.query);
+  
+  // Focus first input
+  setTimeout(() => {
+    const firstInput = popover.querySelector('.placeholder-input');
+    if (firstInput) firstInput.focus();
+  }, 50);
+}
+
+// Update the preview query as user types
+function updatePlaceholderPreview(originalQuery) {
+  const previewElement = document.getElementById('placeholderPreview');
+  if (!previewElement) return;
+  
+  const inputs = document.querySelectorAll('.placeholder-input');
+  const values = Array.from(inputs).map(input => input.value.trim());
+  
+  let preview = originalQuery;
+  let argIndex = 0;
+  
+  // Replace {key_name} placeholders first (supports any characters including spaces)
+  preview = preview.replace(/\{([^}]+)\}/g, (match, keyName) => {
+    if (argIndex < values.length && values[argIndex]) {
+      const value = values[argIndex];
+      argIndex++;
+      return `<span class="preview-value">${value.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
+    } else {
+      argIndex++;
+      return `<span class="preview-missing">{${keyName}}</span>`;
+    }
+  });
+  
+  // Then replace ? placeholders
+  preview = preview.replace(/\?/g, () => {
+    if (argIndex < values.length && values[argIndex]) {
+      const value = values[argIndex];
+      argIndex++;
+      return `<span class="preview-value">${value.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`;
+    } else {
+      argIndex++;
+      return '<span class="preview-missing">?</span>';
+    }
+  });
+  
+  previewElement.innerHTML = preview;
+}
+
+// Apply placeholder values from popover
+function applyPlaceholderValues(shortcut) {
+  const popover = document.getElementById('placeholderPopover');
+  if (!popover) return;
+  
+  const inputs = popover.querySelectorAll('.placeholder-input');
+  const values = Array.from(inputs).map(input => input.value.trim());
+  
+  // Find the shortcut in the query editor and replace it
+  const query = queryEditor.value;
+  const pattern = new RegExp(`\\{\\{${shortcut}(?:\\([^)]*\\))?\\}\\}`, 'g');
+  
+  const newShortcut = values.length > 0 && values.some(v => v) ? 
+    `{{${shortcut}(${values.join(', ')})}}` : 
+    `{{${shortcut}}}`;
+  
+  const newQuery = query.replace(pattern, newShortcut);
+  
+  queryEditor.value = newQuery;
+  updateLineNumbers();
+  updateSyntaxHighlight();
+  
+  popover.remove();
+  showNotification('Placeholder values updated', 'success');
 }
 
 // Autocomplete for Shortcuts and SQL Tables/Views
@@ -6726,13 +7119,24 @@ function selectAutocompleteItem() {
   if (shortcutMatch) {
     const shortcut = selected.dataset.shortcut;
     const matchStart = textBeforeCursor.lastIndexOf('{{');
-    const newText = textBeforeCursor.substring(0, matchStart) + 
-                    `{{${shortcut}}}` + 
-                    textAfterCursor;
-    
-    queryEditor.value = newText;
-    queryEditor.selectionStart = queryEditor.selectionEnd = 
-      matchStart + `{{${shortcut}}}`.length;
+    // Check if user started typing a parenthesis after the shortcut (e.g. '{{snip(')
+    const typedPart = textBeforeCursor.substring(matchStart + 2); // content after '{{'
+    if (typedPart.endsWith('(')) {
+      // Insert with empty parentheses and place cursor between them: {{shortcut()}}
+      const insertText = `{{${shortcut}()}}`;
+      const newText = textBeforeCursor.substring(0, matchStart) + insertText + textAfterCursor;
+      queryEditor.value = newText;
+      // Place cursor between the parentheses
+      const caretPos = matchStart + (`{{${shortcut}(`).length;
+      queryEditor.selectionStart = queryEditor.selectionEnd = caretPos;
+    } else {
+      const newText = textBeforeCursor.substring(0, matchStart) + 
+                      `{{${shortcut}}}` + 
+                      textAfterCursor;
+      queryEditor.value = newText;
+      queryEditor.selectionStart = queryEditor.selectionEnd = 
+        matchStart + `{{${shortcut}}}`.length;
+    }
     
     updateLineNumbers();
     updateSyntaxHighlight();
