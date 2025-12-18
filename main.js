@@ -67,6 +67,30 @@ function createWindow() {
   if (process.argv.includes('--inspect')) {
     mainWindow.webContents.openDevTools();
   }
+
+  // Handle window close event to gracefully disconnect database connections
+  mainWindow.on('close', async (event) => {
+    // Prevent immediate close
+    event.preventDefault();
+    
+    try {
+      console.log('Window closing, disconnecting database connections...');
+      
+      // Disconnect all database connections
+      await dbService.disconnectAll();
+      
+      console.log('All connections closed, quitting app...');
+      
+      // Now actually close the window and quit
+      mainWindow.destroy();
+      app.quit();
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+      // Even if there's an error, close the app
+      mainWindow.destroy();
+      app.quit();
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -82,10 +106,33 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   if (process.platform !== 'darwin') {
+    // Disconnect all database connections before quitting
+    try {
+      await dbService.disconnectAll();
+    } catch (error) {
+      console.error('Error disconnecting on quit:', error);
+    }
     app.quit();
   }
+});
+
+// Handle app quit event (e.g., Cmd+Q on macOS)
+app.on('before-quit', async (event) => {
+  // Prevent immediate quit
+  event.preventDefault();
+  
+  try {
+    console.log('App quitting, disconnecting database connections...');
+    await dbService.disconnectAll();
+    console.log('All connections closed');
+  } catch (error) {
+    console.error('Error during cleanup on quit:', error);
+  }
+  
+  // Now allow the app to quit
+  app.exit(0);
 });
 
 // IPC Handlers
@@ -524,8 +571,9 @@ ipcMain.handle('maximize-window', () => {
   }
 });
 
-ipcMain.handle('close-window', () => {
+ipcMain.handle('close-window', async () => {
   if (mainWindow) {
+    // The close event handler will take care of disconnecting
     mainWindow.close();
   }
 });

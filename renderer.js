@@ -2186,15 +2186,14 @@ function renderDatabaseTree(schema) {
         
         const schemaBtn = document.createElement('button');
         schemaBtn.className = 'btn-icon';
-        schemaBtn.title = 'View Table Schema';
+        // Change tooltip/description to 'Table Info' per request
+        schemaBtn.title = 'Table Info';
+        // Use a simple info-circle SVG icon
         schemaBtn.innerHTML = `
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <path d="M9 9h6v6H9z"/>
-            <path d="M9 3v6"/>
-            <path d="M21 9h-6"/>
-            <path d="M15 15v6"/>
-            <path d="M9 21h6"/>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"></circle>
+            <line x1="12" y1="8" x2="12" y2="8.01"></line>
+            <line x1="12" y1="12" x2="12" y2="17"></line>
           </svg>
         `;
         schemaBtn.style.opacity = '0.6';
@@ -8288,16 +8287,16 @@ CREATE TABLE users (
   }
 }
 
-function showTableSchema(schemaName, tableName, tableInfo) {
+async function showTableSchema(schemaName, tableName, tableInfo) {
   const modal = document.getElementById('tableSchemaModal');
   const title = document.getElementById('tableSchemaTitle');
   const content = document.getElementById('tableSchemaContent');
-  
+
   // Set title
   const displayTableName = formatIdentifierForQuery(schemaName, tableName);
   title.textContent = `Schema: ${displayTableName}`;
-  
-  // Build schema content
+
+  // Build schema content and include a placeholder for total entries (will be filled asynchronously)
   let schemaHTML = `
     <div class="schema-info">
       <div class="schema-header">
@@ -8314,6 +8313,10 @@ function showTableSchema(schemaName, tableName, tableInfo) {
           <div class="schema-detail-item">
             <span class="detail-label">Columns:</span> 
             <span class="detail-value">${tableInfo.columns.length}</span>
+          </div>
+          <div class="schema-detail-item">
+            <span class="detail-label">Total Entries:</span>
+            <span class="detail-value" id="tableRowCount">Loading...</span>
           </div>
         </div>
       </div>
@@ -8407,7 +8410,30 @@ function showTableSchema(schemaName, tableName, tableInfo) {
   // No need for a separate indexes section
   
   content.innerHTML = schemaHTML;
+  // After rendering the modal content, attempt to fetch the total row count
   modal.classList.remove('hidden');
+
+  // Build a safe COUNT query using the formatted identifier
+  try {
+    if (currentConnectionId) {
+      const countQuery = `SELECT COUNT(*) AS count FROM ${displayTableName};`;
+      const countResult = await window.api.executeQuery(currentConnectionId, countQuery);
+      const countEl = document.getElementById('tableRowCount');
+      if (countEl) {
+        if (countResult && countResult.success && Array.isArray(countResult.rows) && countResult.rows[0]) {
+          // PostgreSQL returns numeric counts as strings for bigints sometimes; coerce to string
+          const cnt = countResult.rows[0].count;
+          countEl.textContent = (cnt === null || cnt === undefined) ? '0' : String(cnt);
+        } else {
+          countEl.textContent = 'N/A';
+        }
+      }
+    }
+  } catch (err) {
+    const countEl = document.getElementById('tableRowCount');
+    if (countEl) countEl.textContent = 'N/A';
+    console.error('Failed to fetch table row count:', err);
+  }
 }
 
 function closeTableSchemaModal() {

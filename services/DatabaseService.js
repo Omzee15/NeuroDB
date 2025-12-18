@@ -455,6 +455,39 @@ class DatabaseService {
     }
   }
 
+  async disconnectAll() {
+    try {
+      console.log('Disconnecting all database connections...');
+      const disconnectPromises = [];
+      
+      // Disconnect all active pools
+      for (const [connectionId, pool] of this.pools.entries()) {
+        console.log(`Closing connection: ${connectionId}`);
+        disconnectPromises.push(
+          pool.end()
+            .then(() => {
+              console.log(`Connection ${connectionId} closed successfully`);
+              this.pools.delete(connectionId);
+            })
+            .catch(error => {
+              console.error(`Error closing connection ${connectionId}:`, error.message);
+              // Still delete from map even if error occurs
+              this.pools.delete(connectionId);
+            })
+        );
+      }
+      
+      // Wait for all connections to close
+      await Promise.all(disconnectPromises);
+      
+      console.log('All database connections closed');
+      return { success: true };
+    } catch (error) {
+      console.error('Error disconnecting all connections:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   async executeQuery(connectionId, query, queryId = null) {
     try {
       const pool = this.pools.get(connectionId);
