@@ -1125,6 +1125,7 @@ function setupEventListeners() {
   
   // Snippets
   document.getElementById('addSnippetBtn')?.addEventListener('click', () => openSnippetModal());
+  document.getElementById('snippetsGeneralHelpBtn')?.addEventListener('click', showSnippetsGeneralHelp);
   document.getElementById('exportSnippetsBtn')?.addEventListener('click', exportSnippets);
   document.getElementById('importSnippetsBtn')?.addEventListener('click', importSnippets);
   document.getElementById('closeSnippetModal')?.addEventListener('click', () => {
@@ -1144,6 +1145,11 @@ function setupEventListeners() {
     document.getElementById('variableModal').classList.add('hidden');
   });
   document.getElementById('variableForm')?.addEventListener('submit', saveVariable);
+  
+  // Snippet Help Modal
+  document.getElementById('closeSnippetHelpModal')?.addEventListener('click', () => {
+    document.getElementById('snippetHelpModal').classList.add('hidden');
+  });
   
   // DBML
   document.getElementById('loadSchemaBtn')?.addEventListener('click', loadSchemaToDBML);
@@ -2219,7 +2225,7 @@ function renderDatabaseTree(schema) {
         
         downloadBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          downloadTableData(schemaName, tableName);
+          showDownloadFormatModal(schemaName, tableName);
         });
         
         tableName_span.addEventListener('click', () => {
@@ -2294,7 +2300,7 @@ function renderDatabaseTree(schema) {
         
         downloadBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          downloadTableData(schemaName, viewName);
+          showDownloadFormatModal(schemaName, viewName);
         });
         
         viewName_span.addEventListener('click', () => {
@@ -4170,6 +4176,29 @@ function escapeCSV(value) {
   return stringValue;
 }
 
+function convertToSQL(data, tableName) {
+  if (!data || data.length === 0) return '';
+  
+  const sqlStatements = [];
+  const columns = Object.keys(data[0]);
+  
+  data.forEach(row => {
+    const values = columns.map(col => {
+      const val = row[col];
+      if (val === null || val === undefined) return 'NULL';
+      if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+      if (val instanceof Date) return `'${val.toISOString()}'`;
+      if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+      if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+      return val;
+    });
+    
+    sqlStatements.push(`INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${values.join(', ')});`);
+  });
+  
+  return sqlStatements.join('\n');
+}
+
 // Make export function global
 window.exportResults = exportResults;
 
@@ -4225,7 +4254,44 @@ async function downloadDatabaseBackup(databaseId, databaseName) {
   }
 }
 
-async function downloadTableData(schemaName, tableName) {
+function showDownloadFormatModal(schemaName, tableName) {
+  const modal = document.getElementById('downloadFormatModal');
+  const closeBtn = document.getElementById('closeDownloadFormatModal');
+  const csvBtn = document.getElementById('downloadAsCSV');
+  const sqlBtn = document.getElementById('downloadAsSQL');
+  
+  // Remove any existing event listeners by cloning buttons
+  const newCsvBtn = csvBtn.cloneNode(true);
+  const newSqlBtn = sqlBtn.cloneNode(true);
+  csvBtn.parentNode.replaceChild(newCsvBtn, csvBtn);
+  sqlBtn.parentNode.replaceChild(newSqlBtn, sqlBtn);
+  
+  // Show modal
+  modal.classList.remove('hidden');
+  
+  // Close modal function
+  const closeModal = () => {
+    modal.classList.add('hidden');
+  };
+  
+  // Event listeners
+  closeBtn.onclick = closeModal;
+  modal.onclick = (e) => {
+    if (e.target === modal) closeModal();
+  };
+  
+  newCsvBtn.onclick = () => {
+    closeModal();
+    downloadTableData(schemaName, tableName, 'csv');
+  };
+  
+  newSqlBtn.onclick = () => {
+    closeModal();
+    downloadTableData(schemaName, tableName, 'sql');
+  };
+}
+
+async function downloadTableData(schemaName, tableName, format = 'csv') {
   const downloadPopover = document.getElementById('downloadPopover');
   const downloadTitle = document.getElementById('downloadTitle');
   const downloadSubtitle = document.getElementById('downloadSubtitle');
@@ -4242,33 +4308,47 @@ async function downloadTableData(schemaName, tableName) {
     const result = await window.api.executeQuery(currentConnectionId, query);
     
     if (result.success && result.rows && result.rows.length > 0) {
-      downloadTitle.textContent = 'Converting to CSV';
+      const formatName = format.toUpperCase();
+      downloadTitle.textContent = `Converting to ${formatName}`;
       downloadSubtitle.textContent = `Processing ${result.rowCount} rows...`;
       
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const defaultFilename = `${tableName}_${timestamp}.csv`;
+      const fileExtension = format === 'csv' ? 'csv' : 'sql';
+      const defaultFilename = `${tableName}_${timestamp}.${fileExtension}`;
       
-      // Convert to CSV
-      const csvContent = convertToCSV(result.rows);
+      // Convert to selected format
+      let fileContent;
+      if (format === 'csv') {
+        fileContent = convertToCSV(result.rows);
+      } else {
+        fileContent = convertToSQL(result.rows, fullTableName);
+      }
       
       downloadTitle.textContent = 'Saving File';
       downloadSubtitle.textContent = 'Choose where to save...';
       
       // Use save dialog
+      const filters = format === 'csv' 
+        ? [
+            { name: 'CSV Files', extensions: ['csv'] },
+            { name: 'All Files', extensions: ['*'] }
+          ]
+        : [
+            { name: 'SQL Files', extensions: ['sql'] },
+            { name: 'All Files', extensions: ['*'] }
+          ];
+      
       const saveResult = await window.api.saveFile({
-        content: csvContent,
+        content: fileContent,
         defaultPath: defaultFilename,
-        filters: [
-          { name: 'CSV Files', extensions: ['csv'] },
-          { name: 'All Files', extensions: ['*'] }
-        ]
+        filters: filters
       });
       
       // Hide loading popover
       downloadPopover.classList.add('hidden');
       
       if (saveResult.success) {
-        showNotification(`Table data saved: ${result.rowCount} rows`, 'success');
+        showNotification(`Table data saved: ${result.rowCount} rows (${formatName})`, 'success');
       } else if (!saveResult.canceled) {
         showNotification('Failed to save table data: ' + saveResult.error, 'error');
       }
@@ -4292,6 +4372,7 @@ async function downloadTableData(schemaName, tableName) {
 // Make functions global
 window.downloadDatabaseBackup = downloadDatabaseBackup;
 window.downloadTableData = downloadTableData;
+window.showDownloadFormatModal = showDownloadFormatModal;
 
 async function downloadDatabaseSchema(databaseId, databaseName) {
   const downloadPopover = document.getElementById('downloadPopover');
@@ -5197,6 +5278,12 @@ function renderSnippets() {
           <span class="snippet-shortcut">{{${snippet.shortcut}}}</span>
         </div>
         <div class="snippet-actions">
+          <button class="btn-icon snippet-help-btn" onclick="showSnippetHelp('${snippet.id}')" title="Show usage help">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/>
+              <text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="bold" fill="currentColor">i</text>
+            </svg>
+          </button>
           <button class="btn-secondary item-actions-btn" onclick="useSnippet('${snippet.id}')">Use</button>
           <button class="btn-secondary item-actions-btn" onclick="editSnippet('${snippet.id}')">Edit</button>
           <button class="btn-danger item-actions-btn" onclick="deleteSnippet('${snippet.id}')">Delete</button>
@@ -5339,6 +5426,392 @@ function useSnippet(id) {
     updateSyntaxHighlight();
     showNotification('Snippet loaded into editor', 'success');
   }
+}
+
+function showSnippetHelp(id) {
+  const snippet = snippets.find(s => s.id === id);
+  if (!snippet) return;
+
+  const modal = document.getElementById('snippetHelpModal');
+  const title = document.getElementById('snippetHelpTitle');
+  const content = document.getElementById('snippetHelpContent');
+
+  title.textContent = `${snippet.name} - Usage Guide`;
+
+  // Extract placeholders from the query
+  const namedPlaceholders = [];
+  const namedMatches = snippet.query.matchAll(/\{([^}]+)\}/g);
+  for (const match of namedMatches) {
+    namedPlaceholders.push(match[1]);
+  }
+
+  const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;
+  
+  // Add generic names for ? placeholders
+  const questionPlaceholders = [];
+  for (let i = 0; i < questionPlaceholderCount; i++) {
+    questionPlaceholders.push(`param_${i + 1}`);
+  }
+
+  const allPlaceholders = [...namedPlaceholders, ...questionPlaceholders];
+  const hasPlaceholders = allPlaceholders.length > 0;
+
+  // Build help content
+  let html = `
+    <div class="help-section">
+      <h3 class="help-section-title">Query Details</h3>
+      <div class="help-item">
+        <label>Shortcut:</label>
+        <code class="help-code">{{${snippet.shortcut}}}</code>
+      </div>
+      ${snippet.description ? `
+        <div class="help-item">
+          <label>Description:</label>
+          <span>${snippet.description}</span>
+        </div>
+      ` : ''}
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">SQL Query</h3>
+      <pre class="help-query">${snippet.query.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+    </div>
+  `;
+
+  if (hasPlaceholders) {
+    html += `
+      <div class="help-section">
+        <h3 class="help-section-title">Placeholders</h3>
+        <p class="help-description">This query contains <strong>${allPlaceholders.length}</strong> placeholder${allPlaceholders.length !== 1 ? 's' : ''} that need to be filled:</p>
+        <ul class="help-placeholder-list">
+          ${allPlaceholders.map((ph, idx) => `
+            <li>
+              <code class="help-placeholder-name">${ph}</code>
+              ${namedPlaceholders.includes(ph) ? '<span class="help-placeholder-type">Named</span>' : '<span class="help-placeholder-type positional">Positional</span>'}
+            </li>
+          `).join('')}
+        </ul>
+      </div>
+
+      <div class="help-section">
+        <h3 class="help-section-title">Usage Examples</h3>
+        
+        <div class="help-example">
+          <h4>1. Basic Usage (Without Arguments)</h4>
+          <p class="help-description">Type the shortcut in your query editor:</p>
+          <pre class="help-code-block">{{${snippet.shortcut}}}</pre>
+          <p class="help-note">⚠️ A warning icon will appear indicating missing placeholders. Click on it to fill in values.</p>
+        </div>
+
+        <div class="help-example">
+          <h4>2. Usage With Arguments</h4>
+          <p class="help-description">Provide values directly in parentheses (comma-separated):</p>
+          <pre class="help-code-block">{{${snippet.shortcut}(${allPlaceholders.map((ph, idx) => {
+            if (ph.includes('date')) return 'YYYY-MM-DD';
+            if (ph.includes('id')) return '123';
+            if (ph.includes('name')) return "'John Doe'";
+            if (ph.includes('status')) return "'active'";
+            return `value${idx + 1}`;
+          }).join(', ')})}}}</pre>
+        </div>
+
+        <div class="help-example">
+          <h4>3. Interactive Method</h4>
+          <ol class="help-steps">
+            <li>Type <code>{{${snippet.shortcut}}}</code> in the query editor</li>
+            <li>Click on the highlighted shortcut with the ⚠️ warning icon</li>
+            <li>A popup will appear with input fields for each placeholder</li>
+            <li>Fill in the values and click "Apply"</li>
+            <li>The shortcut will update to include your values</li>
+          </ol>
+        </div>
+
+        <div class="help-example">
+          <h4>4. Sample Output</h4>
+          <p class="help-description">After filling placeholders, the final query will look like:</p>
+          <pre class="help-code-block sample-output">${generateSampleOutput(snippet.query, allPlaceholders)}</pre>
+        </div>
+      </div>
+    `;
+  } else {
+    html += `
+      <div class="help-section">
+        <h3 class="help-section-title">Usage</h3>
+        <p class="help-description">This query has no placeholders. Simply type the shortcut in your query editor:</p>
+        <pre class="help-code-block">{{${snippet.shortcut}}}</pre>
+        <p class="help-note">The shortcut will be replaced with the full query when executed.</p>
+      </div>
+    `;
+  }
+
+  html += `
+    <div class="help-section">
+      <h3 class="help-section-title">Quick Actions</h3>
+      <div class="help-actions">
+        <button class="btn-primary" onclick="useSnippet('${snippet.id}'); document.getElementById('snippetHelpModal').classList.add('hidden');">
+          Use This Query
+        </button>
+        <button class="btn-secondary" onclick="editSnippet('${snippet.id}'); document.getElementById('snippetHelpModal').classList.add('hidden');">
+          Edit Query
+        </button>
+      </div>
+    </div>
+  `;
+
+  content.innerHTML = html;
+  modal.classList.remove('hidden');
+}
+
+// Helper function to generate sample output for help
+function generateSampleOutput(query, placeholders) {
+  let output = query;
+  let argIndex = 0;
+  
+  // Replace {key_name} placeholders
+  output = output.replace(/\{([^}]+)\}/g, (match, keyName) => {
+    if (argIndex < placeholders.length) {
+      const placeholder = placeholders[argIndex];
+      argIndex++;
+      
+      // Generate sample value based on placeholder name
+      if (placeholder.includes('date')) return '2024-01-15';
+      if (placeholder.includes('id')) return '123';
+      if (placeholder.includes('name')) return "'John Doe'";
+      if (placeholder.includes('email')) return "'user@example.com'";
+      if (placeholder.includes('status')) return "'active'";
+      if (placeholder.includes('limit')) return '100';
+      if (placeholder.includes('offset')) return '0';
+      return "'sample_value'";
+    }
+    return match;
+  });
+  
+  // Replace ? placeholders
+  output = output.replace(/\?/g, () => {
+    if (argIndex < placeholders.length) {
+      argIndex++;
+      return "'value'";
+    }
+    return '?';
+  });
+  
+  return output.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Show general help for saved queries
+function showSnippetsGeneralHelp() {
+  const modal = document.getElementById('snippetHelpModal');
+  const title = document.getElementById('snippetHelpTitle');
+  const content = document.getElementById('snippetHelpContent');
+
+  title.textContent = 'Saved Queries - User Guide';
+
+  const html = `
+    <div class="help-section">
+      <h3 class="help-section-title">What are Saved Queries?</h3>
+      <p class="help-description">
+        Saved Queries (also called Snippets) are reusable SQL query templates that you can quickly insert into your query editor. 
+        They're perfect for queries you use frequently, complex queries you don't want to retype, or standardized queries for your team.
+      </p>
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">Creating a Saved Query</h3>
+      <ol class="help-steps">
+        <li>Click the <strong>"New Snippet"</strong> button at the top of this page</li>
+        <li>Fill in the form:
+          <ul style="margin-top: 8px; padding-left: 20px;">
+            <li><strong>Name:</strong> A descriptive name for your query (e.g., "Get Active Users")</li>
+            <li><strong>Shortcut:</strong> A short code to quickly insert it (e.g., "activeusers")</li>
+            <li><strong>SQL Query:</strong> Your SQL query template</li>
+            <li><strong>Description:</strong> Optional notes about what the query does</li>
+          </ul>
+        </li>
+        <li>Click <strong>"Save"</strong> to save your query</li>
+      </ol>
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">Using Saved Queries</h3>
+      <p class="help-description">To use a saved query, type its shortcut in the query editor wrapped in double curly braces:</p>
+      <pre class="help-code-block">{{yourshortcut}}</pre>
+      <p class="help-description" style="margin-top: 12px;">The shortcut will be highlighted and will expand to the full query when executed.</p>
+      
+      <div class="help-example">
+        <h4>Example:</h4>
+        <p class="help-description">If you have a saved query with shortcut "activeusers", just type:</p>
+        <pre class="help-code-block">{{activeusers}}</pre>
+        <p class="help-description">And it will be replaced with your full query when executed!</p>
+      </div>
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">Using Placeholders (Dynamic Values)</h3>
+      <p class="help-description">
+        Placeholders make your saved queries dynamic by allowing you to provide different values each time you use them.
+        There are two types of placeholders you can use:
+      </p>
+
+      <div class="help-example">
+        <h4>1. Named Placeholders: <code class="help-code">{placeholder_name}</code></h4>
+        <p class="help-description">Use curly braces with a descriptive name. This is recommended for clarity.</p>
+        <pre class="help-query">SELECT * FROM users 
+WHERE created_at > {start_date} 
+  AND status = {user_status}
+LIMIT {row_limit}</pre>
+        <p class="help-note">✨ Named placeholders can contain spaces and special characters: <code>{start date}</code>, <code>{user's name}</code></p>
+      </div>
+
+      <div class="help-example">
+        <h4>2. Positional Placeholders: <code class="help-code">?</code></h4>
+        <p class="help-description">Use question marks for simple, position-based placeholders.</p>
+        <pre class="help-query">SELECT * FROM products 
+WHERE category = ? 
+  AND price > ?</pre>
+      </div>
+
+      <div class="help-example">
+        <h4>3. Mixed Placeholders</h4>
+        <p class="help-description">You can use both types together! They'll be filled in order.</p>
+        <pre class="help-query">SELECT * FROM orders 
+WHERE user_id = {user_id} 
+  AND status = ?
+  AND created_at > {start_date}</pre>
+      </div>
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">Filling Placeholder Values</h3>
+      <p class="help-description">There are three ways to provide values for placeholders:</p>
+
+      <div class="help-example">
+        <h4>Method 1: Direct Arguments</h4>
+        <p class="help-description">Provide values in parentheses, separated by commas:</p>
+        <pre class="help-code-block">{{activeusers(2024-01-01, active, 100)}}</pre>
+        <p class="help-note">💡 Values are applied in order: {start_date} → 2024-01-01, {user_status} → active, {row_limit} → 100</p>
+      </div>
+
+      <div class="help-example">
+        <h4>Method 2: Interactive Popup (Recommended)</h4>
+        <ol class="help-steps">
+          <li>Type your shortcut: <code>{{activeusers}}</code></li>
+          <li>You'll see a warning icon <strong>⚠️</strong> indicating missing placeholders</li>
+          <li>Click on the highlighted shortcut</li>
+          <li>A popup appears with labeled input fields for each placeholder</li>
+          <li>Fill in the values and see a live preview of your query</li>
+          <li>Click <strong>"Apply"</strong> to insert the values</li>
+        </ol>
+        <p class="help-note">✨ This method shows placeholder names and provides a live preview!</p>
+      </div>
+
+      <div class="help-example">
+        <h4>Method 3: Autocomplete</h4>
+        <ol class="help-steps">
+          <li>Start typing <code>{{</code> in the query editor</li>
+          <li>A dropdown will show all your saved queries</li>
+          <li>Select one with arrow keys or mouse</li>
+          <li>Press Enter or Tab to insert it</li>
+          <li>Use Method 1 or 2 to fill placeholders</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">Complete Example Workflow</h3>
+      <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 6px; border-left: 3px solid var(--primary-color);">
+        <p><strong>Step 1: Create a saved query</strong></p>
+        <ul style="margin: 8px 0; padding-left: 20px;">
+          <li><strong>Name:</strong> Get Users by Date Range</li>
+          <li><strong>Shortcut:</strong> usersbydate</li>
+          <li><strong>Query:</strong></li>
+        </ul>
+        <pre class="help-query" style="margin: 10px 0;">SELECT id, name, email, created_at 
+FROM users 
+WHERE created_at BETWEEN {start_date} AND {end_date}
+  AND status = {status}
+ORDER BY created_at DESC
+LIMIT {limit}</pre>
+
+        <p style="margin-top: 15px;"><strong>Step 2: Use it in the query editor</strong></p>
+        <pre class="help-code-block">{{usersbydate}}</pre>
+
+        <p style="margin-top: 15px;"><strong>Step 3: Click the shortcut (with ⚠️ icon)</strong></p>
+        <p style="margin: 8px 0; color: var(--text-secondary); font-size: 13px;">A popup appears with 4 input fields:</p>
+        <ul style="margin: 8px 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px;">
+          <li>start_date: <code>2024-01-01</code></li>
+          <li>end_date: <code>2024-12-31</code></li>
+          <li>status: <code>active</code></li>
+          <li>limit: <code>50</code></li>
+        </ul>
+
+        <p style="margin-top: 15px;"><strong>Step 4: Final query after applying values</strong></p>
+        <pre class="help-query" style="margin: 10px 0;">SELECT id, name, email, created_at 
+FROM users 
+WHERE created_at BETWEEN 2024-01-01 AND 2024-12-31
+  AND status = active
+ORDER BY created_at DESC
+LIMIT 50</pre>
+      </div>
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">Tips & Best Practices</h3>
+      <ul class="help-placeholder-list" style="list-style-type: none; padding-left: 0;">
+        <li style="margin-bottom: 12px;">
+          <strong>💡 Use descriptive shortcut names</strong><br>
+          <span style="color: var(--text-secondary); font-size: 13px;">Good: <code>usersbydate</code>, Bad: <code>ubd</code></span>
+        </li>
+        <li style="margin-bottom: 12px;">
+          <strong>📝 Use named placeholders for clarity</strong><br>
+          <span style="color: var(--text-secondary); font-size: 13px;"><code>{user_id}</code> is clearer than <code>?</code></span>
+        </li>
+        <li style="margin-bottom: 12px;">
+          <strong>📋 Add descriptions to your queries</strong><br>
+          <span style="color: var(--text-secondary); font-size: 13px;">Future you will thank present you!</span>
+        </li>
+        <li style="margin-bottom: 12px;">
+          <strong>🔄 Export your snippets regularly</strong><br>
+          <span style="color: var(--text-secondary); font-size: 13px;">Use the Export button to backup your saved queries</span>
+        </li>
+        <li style="margin-bottom: 12px;">
+          <strong>ℹ️ Click the info icon on any saved query</strong><br>
+          <span style="color: var(--text-secondary); font-size: 13px;">Get specific usage examples for that query</span>
+        </li>
+      </ul>
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">Keyboard Shortcuts</h3>
+      <ul style="list-style-type: none; padding-left: 0;">
+        <li style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span>Start typing shortcut</span>
+          <code class="help-code">{{</code>
+        </li>
+        <li style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span>Apply placeholder values</span>
+          <code class="help-code">Enter</code>
+        </li>
+        <li style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span>Cancel placeholder popup</span>
+          <code class="help-code">Esc</code>
+        </li>
+        <li style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span>Navigate autocomplete</span>
+          <code class="help-code">↑ ↓</code>
+        </li>
+      </ul>
+    </div>
+
+    <div class="help-section">
+      <h3 class="help-section-title">Need More Help?</h3>
+      <p class="help-description">
+        Click the <strong>info icon (ℹ️)</strong> next to any saved query in the list to see specific usage examples for that query.
+      </p>
+    </div>
+  `;
+
+  content.innerHTML = html;
+  modal.classList.remove('hidden');
 }
 
 async function exportSnippets() {

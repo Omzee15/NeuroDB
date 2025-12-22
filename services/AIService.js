@@ -10,7 +10,7 @@ class AIService {
       modelName: 'gemini-2.5-flash',
       apiKey: apiKey,
       temperature: 0.3,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 8192, // Increased from 2048 to 8192 to prevent incomplete SQL queries
     });
   }
 
@@ -107,6 +107,10 @@ Rules:
 12. Add appropriate ORDER BY clauses when relevant for SELECT statements
 13. Consider performance implications and constraints
 14. For DDL operations (CREATE, ALTER, DROP), ensure proper syntax and data types
+15. CRITICAL: ALWAYS complete the entire SQL query - never stop mid-statement or mid-column list
+16. CRITICAL: Ensure all SELECT column lists are complete with proper commas and closing
+17. CRITICAL: Ensure all parentheses are properly closed
+18. CRITICAL: End every statement with a semicolon (;)
 
 Examples of supported operations:
 - SELECT queries with JOINs, WHERE, ORDER BY, GROUP BY
@@ -145,6 +149,17 @@ If the request is unclear or cannot be fulfilled with the available schema, retu
         };
       }
 
+      // Validate that the SQL query appears complete
+      const isIncomplete = this.detectIncompleteSQL(sqlQuery);
+      if (isIncomplete) {
+        console.warn('Detected potentially incomplete SQL query:', sqlQuery);
+        return {
+          success: false,
+          error: 'The generated SQL query appears to be incomplete. Please try again or rephrase your request.',
+          query: null
+        };
+      }
+
       return {
         success: true,
         query: sqlQuery,
@@ -158,6 +173,53 @@ If the request is unclear or cannot be fulfilled with the available schema, retu
         query: null
       };
     }
+  }
+
+  detectIncompleteSQL(sql) {
+    if (!sql || sql.length === 0) return true;
+
+    // Check for common signs of incomplete SQL
+    const incompleteSigns = [
+      // Ends with comma (incomplete column list)
+      /,\s*$/,
+      // Ends with open parenthesis
+      /\(\s*$/,
+      // Ends with JOIN keyword without ON clause
+      /\b(INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|JOIN)\s+\w+\s*$/i,
+      // Ends with WHERE/AND/OR without condition
+      /\b(WHERE|AND|OR)\s*$/i,
+      // Ends with AS without alias
+      /\bAS\s*$/i,
+      // Ends with incomplete table/column reference (table.)
+      /\w+\.\s*$/,
+      // Missing semicolon at the end (optional but good practice)
+      // Unmatched parentheses
+    ];
+
+    for (const pattern of incompleteSigns) {
+      if (pattern.test(sql)) {
+        return true;
+      }
+    }
+
+    // Check for balanced parentheses
+    const openParens = (sql.match(/\(/g) || []).length;
+    const closeParens = (sql.match(/\)/g) || []).length;
+    if (openParens !== closeParens) {
+      return true;
+    }
+
+    // Check if SELECT statement has FROM clause
+    if (sql.trim().toUpperCase().startsWith('SELECT')) {
+      if (!/\bFROM\b/i.test(sql)) {
+        // SELECT without FROM might be valid (e.g., SELECT 1), so only warn if it looks incomplete
+        if (sql.includes(',') && !sql.includes('FROM')) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   async explainQuery(query, schema) {
