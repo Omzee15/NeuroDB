@@ -5438,11 +5438,16 @@ function showSnippetHelp(id) {
 
   title.textContent = `${snippet.name} - Usage Guide`;
 
-  // Extract placeholders from the query
+  // Extract unique placeholders from the query
   const namedPlaceholders = [];
   const namedMatches = snippet.query.matchAll(/\{([^}]+)\}/g);
+  const seenPlaceholders = new Set();
   for (const match of namedMatches) {
-    namedPlaceholders.push(match[1]);
+    // Only add unique placeholder names
+    if (!seenPlaceholders.has(match[1])) {
+      namedPlaceholders.push(match[1]);
+      seenPlaceholders.add(match[1]);
+    }
   }
 
   const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;
@@ -5935,26 +5940,51 @@ function replacePlaceholders(query) {
 
     let result = snippet.query;
 
-    // Replace both {key_name} and ? placeholders in order with provided args
+    // Replace both {key_name} and ? placeholders with provided args
     if (rawArgs.length > 0) {
+      // First, collect unique named placeholders in order of first appearance
+      const uniquePlaceholders = [];
+      const seenPlaceholders = new Set();
+      const namedMatches = snippet.query.matchAll(/\{([^}]+)\}/g);
+      for (const match of namedMatches) {
+        if (!seenPlaceholders.has(match[1])) {
+          uniquePlaceholders.push(match[1]);
+          seenPlaceholders.add(match[1]);
+        }
+      }
+      
+      // Count ? placeholders
+      const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;
+      
+      // Create a map of placeholder names to values
+      const placeholderValues = {};
       let argIndex = 0;
       
-      // Replace {key_name} style placeholders (supports spaces and special chars)
-      result = result.replace(/\{([^}]+)\}/g, () => {
+      // Map unique named placeholders to provided args
+      for (const placeholderName of uniquePlaceholders) {
         if (argIndex < rawArgs.length) {
-          const value = rawArgs[argIndex++];
-          return value;
+          placeholderValues[placeholderName] = rawArgs[argIndex++];
         }
-        return '?'; // If not enough args, leave as ?
+      }
+      
+      // Map ? placeholders to remaining args
+      const questionPlaceholderValues = [];
+      for (let i = 0; i < questionPlaceholderCount && argIndex < rawArgs.length; i++) {
+        questionPlaceholderValues.push(rawArgs[argIndex++]);
+      }
+      
+      // Replace {key_name} style placeholders with their mapped values
+      result = result.replace(/\{([^}]+)\}/g, (match, placeholderName) => {
+        return placeholderValues[placeholderName] || '?';
       });
       
-      // Then replace any remaining ? placeholders
+      // Replace ? placeholders in order
+      let questionIndex = 0;
       result = result.replace(/\?/g, () => {
-        if (argIndex < rawArgs.length) {
-          const value = rawArgs[argIndex++];
-          return value;
+        if (questionIndex < questionPlaceholderValues.length) {
+          return questionPlaceholderValues[questionIndex++];
         }
-        return '?'; // If not enough args, leave as ?
+        return '?';
       });
     }
 
@@ -7103,8 +7133,13 @@ function highlightSQL(sql) {
       const snippet = snippets.find(s => s.shortcut === shortcut);
       
       if (snippet) {
-        // Count {key_name} and ? placeholders in snippet query (supports any characters in placeholder names)
-        const namedPlaceholderCount = (snippet.query.match(/\{[^}]+\}/g) || []).length;
+        // Count unique {key_name} and ? placeholders in snippet query
+        const namedMatches = snippet.query.matchAll(/\{[^}]+\}/g);
+        const uniqueNamedPlaceholders = new Set();
+        for (const match of namedMatches) {
+          uniqueNamedPlaceholders.add(match[0]);
+        }
+        const namedPlaceholderCount = uniqueNamedPlaceholders.size;
         const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;
         const totalPlaceholderCount = namedPlaceholderCount + questionPlaceholderCount;
         
@@ -7122,7 +7157,12 @@ function highlightSQL(sql) {
     // Check if it's a simple shortcut that has placeholders
     const snippet = snippets.find(s => s.shortcut === content);
     if (snippet) {
-      const namedPlaceholderCount = (snippet.query.match(/\{[^}]+\}/g) || []).length;
+      const namedMatches = snippet.query.matchAll(/\{[^}]+\}/g);
+      const uniqueNamedPlaceholders = new Set();
+      for (const match of namedMatches) {
+        uniqueNamedPlaceholders.add(match[0]);
+      }
+      const namedPlaceholderCount = uniqueNamedPlaceholders.size;
       const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;
       const totalPlaceholderCount = namedPlaceholderCount + questionPlaceholderCount;
       
@@ -7182,8 +7222,13 @@ function handleShortcutClick(event) {
   // Extract placeholder names from {key_name} and count ? placeholders (supports any characters)
   const namedPlaceholders = [];
   const namedMatches = snippet.query.matchAll(/\{([^}]+)\}/g);
+  const seenPlaceholders = new Set();
   for (const match of namedMatches) {
-    namedPlaceholders.push(match[1]);
+    // Only add unique placeholder names
+    if (!seenPlaceholders.has(match[1])) {
+      namedPlaceholders.push(match[1]);
+      seenPlaceholders.add(match[1]);
+    }
   }
   
   const questionPlaceholderCount = (snippet.query.match(/\?/g) || []).length;

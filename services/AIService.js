@@ -234,18 +234,19 @@ If the request is unclear or cannot be fulfilled with the available schema, retu
     try {
       const schemaText = this.formatSchemaForPrompt(schema);
 
-      const systemPrompt = `You are an expert PostgreSQL assistant. Your task is to explain SQL queries in simple terms.
+      const systemPrompt = `You are an expert PostgreSQL assistant. Your task is to explain SQL queries in a concise, clear way.
 
 ${schemaText}
 
-Provide:
-1. What the query does in simple language
-2. Which tables are involved
-3. What conditions/filters are applied
-4. What the expected result will be
-5. Any potential performance considerations
+IMPORTANT: Keep your explanation brief and to the point. Maximum 3-4 sentences.
 
-Be concise but thorough.`;
+Explain:
+- What the query does (1 sentence)
+- Key tables and conditions (1 sentence)
+- Expected output (1 sentence)
+- Only mention performance if critical
+
+Use simple language. Be direct and concise.`;
 
       const messages = [
         new SystemMessage(systemPrompt),
