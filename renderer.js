@@ -1416,6 +1416,14 @@ function setupResultsResize() {
       localStorage.setItem('neurodb_editor_height', editorContainer.offsetHeight);
       localStorage.setItem('neurodb_results_height', resultsContainer.offsetHeight);
       
+      // Update scroll spacing after resize completes
+      setTimeout(() => {
+        const resultsTableContainer = document.getElementById('resultsTableContainer');
+        if (resultsTableContainer && resultsTableContainer.querySelector('.results-table')) {
+          addScrollSpacing(resultsTableContainer);
+        }
+      }, 100);
+      
       // Clean up event listeners
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
@@ -1427,6 +1435,12 @@ function setupResultsResize() {
   window.addEventListener('resize', () => {
     if (!isResizing) {
       updateContainerHeights();
+      
+      // Update scroll spacing when window is resized
+      const resultsTableContainer = document.getElementById('resultsTableContainer');
+      if (resultsTableContainer && resultsTableContainer.querySelector('.results-table')) {
+        addScrollSpacing(resultsTableContainer);
+      }
     }
   });
   
@@ -1506,6 +1520,14 @@ function updateContainerHeights() {
     editorContainer.style.height = editorHeight + 'px';
     resultsContainer.style.height = ''; // Remove fixed height to allow flex
   }
+  
+  // Update scroll spacing for results table after height changes
+  setTimeout(() => {
+    const resultsTableContainer = document.getElementById('resultsTableContainer');
+    if (resultsTableContainer && resultsTableContainer.querySelector('.results-table')) {
+      addScrollSpacing(resultsTableContainer);
+    }
+  }, 100); // Small delay to ensure layout is complete
 }
 
 // Parse PostgreSQL connection URL
@@ -3188,8 +3210,36 @@ function renderResultsTable(rows, fields) {
   // Enhance scrolling behavior for large datasets
   enhanceScrollingForLargeDatasets(rows.length, resultsTableContainer);
   
+  // Add dynamic bottom spacing for better scroll-to-top capability
+  addScrollSpacing(resultsTableContainer);
+  
   // Enable export buttons when we have results
   enableExportButtons();
+}
+
+// Add dynamic bottom spacing to allow scrolling last row to header
+function addScrollSpacing(container) {
+  // Remove any existing spacing element
+  const existingSpacing = container.querySelector('.scroll-spacing');
+  if (existingSpacing) {
+    existingSpacing.remove();
+  }
+  
+  // Create a spacing element
+  const spacingDiv = document.createElement('div');
+  spacingDiv.className = 'scroll-spacing';
+  
+  // Calculate the height needed: container height minus a few rows
+  // This allows the last row to scroll all the way to the top
+  const containerHeight = container.clientHeight;
+  const spacingHeight = Math.max(containerHeight - 150, 300); // Minimum 300px
+  
+  spacingDiv.style.height = `${spacingHeight}px`;
+  spacingDiv.style.pointerEvents = 'none';
+  
+  container.appendChild(spacingDiv);
+  
+  console.log(`Added scroll spacing: ${spacingHeight}px for container height: ${containerHeight}px`);
 }
 
 // Enhance scrolling behavior for large datasets
@@ -3634,6 +3684,7 @@ function clearSort() {
 
 // Column Visibility Functions
 let hiddenColumns = new Set();
+let columnVisibilityInitialized = false;
 
 function setupColumnVisibility() {
   const btn = document.getElementById('columnsVisibilityBtn');
@@ -3682,23 +3733,28 @@ function setupColumnVisibility() {
     });
   }
   
-  // Toggle menu visibility
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    menu.classList.toggle('hidden');
-  });
-  
-  // Close menu when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!menu.contains(e.target) && e.target !== btn) {
-      menu.classList.add('hidden');
-    }
-  });
-  
-  // Prevent menu from closing when clicking inside
-  menu.addEventListener('click', (e) => {
-    e.stopPropagation();
-  });
+  // Only setup event listeners once
+  if (!columnVisibilityInitialized) {
+    columnVisibilityInitialized = true;
+    
+    // Toggle menu visibility
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.classList.toggle('hidden');
+    });
+    
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!menu.contains(e.target) && !btn.contains(e.target)) {
+        menu.classList.add('hidden');
+      }
+    });
+    
+    // Prevent menu from closing when clicking inside
+    menu.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+  }
 }
 
 function toggleColumnVisibility(columnIndex, isVisible) {

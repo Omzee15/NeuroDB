@@ -2154,11 +2154,18 @@ body.platform-linux .window-controls {
 .results-table-container {
   flex: 1;
   overflow: auto;
-  padding: 0 0 100px 0; /* Add generous bottom padding to ensure last rows are fully scrollable */
-  box-sizing: border-box; /* Include padding in height calculation */
+  padding: 0;
+  box-sizing: border-box;
   min-height: 0; /* Ensure flexbox allows shrinking */
-  display: block; /* Use block layout instead of flex */
+  display: block;
   height: 100%; /* Ensure full height usage */
+  position: relative;
+}
+
+/* Scroll spacing element added via JavaScript */
+.scroll-spacing {
+  display: block;
+  pointer-events: none;
 }
 
 .no-results {
