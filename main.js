@@ -416,6 +416,34 @@ ipcMain.handle('set-api-key', async (event, apiKey) => {
   }
 });
 
+ipcMain.handle('get-api-key', async () => {
+  try {
+    return { 
+      success: true, 
+      apiKey: configService.getStoredApiKey() 
+    };
+  } catch (error) {
+    console.error('Error getting API key:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('clear-api-key', async () => {
+  try {
+    const result = configService.clearApiKey();
+    if (result.success) {
+      // Reinitialize AI service with default API key
+      const AIService = require('./services/AIService');
+      Object.assign(aiService, new AIService(configService));
+      return { success: true, message: 'API key cleared successfully' };
+    }
+    return result;
+  } catch (error) {
+    console.error('Error clearing API key:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Query History Management
 ipcMain.handle('get-query-history', async () => {
   try {

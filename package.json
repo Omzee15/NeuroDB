@@ -20,7 +20,7 @@
   "license": "AGPL-3.0-or-later",
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "electron": "^28.3.3",
+    "electron": "^39.2.7",
     "electron-builder": "^24.9.1",
     "electron-icon-builder": "^2.0.1"
   },

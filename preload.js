@@ -49,7 +49,9 @@ contextBridge.exposeInMainWorld('api', {
   
   // API Key Management
   getApiKeyStatus: () => ipcRenderer.invoke('get-api-key-status'),
+  getApiKey: () => ipcRenderer.invoke('get-api-key'),
   setApiKey: (apiKey) => ipcRenderer.invoke('set-api-key', apiKey),
+  clearApiKey: () => ipcRenderer.invoke('clear-api-key'),
 
   // Query History Management
   getQueryHistory: () => ipcRenderer.invoke('get-query-history'),

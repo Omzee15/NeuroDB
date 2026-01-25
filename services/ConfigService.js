@@ -75,6 +75,17 @@ class ConfigService {
     return !!(this.config.googleApiKey || process.env.GOOGLE_API_KEY);
   }
 
+  getStoredApiKey() {
+    // Returns the user's stored API key (not the default one)
+    return this.config.googleApiKey || null;
+  }
+
+  clearApiKey() {
+    // Removes the user's custom API key
+    delete this.config.googleApiKey;
+    return this.saveConfig();
+  }
+
   getAll() {
     return { ...this.config };
   }

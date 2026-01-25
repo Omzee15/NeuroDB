@@ -1260,6 +1260,8 @@ function setupEventListeners() {
   // API Key Management
   document.getElementById('saveApiKeyBtn')?.addEventListener('click', () => saveApiKey());
   document.getElementById('toggleApiKeyVisibility')?.addEventListener('click', () => toggleApiKeyVisibility());
+  document.getElementById('toggleStoredKeyVisibility')?.addEventListener('click', () => toggleStoredKeyVisibility());
+  document.getElementById('clearApiKeyBtn')?.addEventListener('click', () => clearApiKey());
   document.getElementById('apiKeyInput')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       saveApiKey();
@@ -8354,13 +8356,29 @@ async function loadApiKeyStatus() {
     const status = await window.api.getApiKeyStatus();
     const statusElement = document.getElementById('apiKeyStatus');
     
+    // Load and display stored API key if exists
+    const storedKeySection = document.getElementById('storedApiKeySection');
+    const storedKeyDisplay = document.getElementById('storedApiKeyDisplay');
+    
     if (status.hasUserApiKey) {
-      statusElement.textContent = '✓ Using your custom API key';
-      statusElement.style.color = 'var(--success-color)';
+      // Fetch the actual stored API key
+      const keyResult = await window.api.getApiKey();
+      if (keyResult.success && keyResult.apiKey) {
+        storedKeySection.style.display = 'block';
+        storedKeyDisplay.value = keyResult.apiKey;
+        statusElement.textContent = '✓ Using your custom API key';
+        statusElement.style.color = 'var(--success-color)';
+      } else {
+        storedKeySection.style.display = 'none';
+        statusElement.textContent = '✓ Using your custom API key';
+        statusElement.style.color = 'var(--success-color)';
+      }
     } else if (status.usingDefaultKey) {
+      storedKeySection.style.display = 'none';
       statusElement.textContent = '✓ Using default API key (you can optionally set your own)';
       statusElement.style.color = 'var(--info-color, #4a9eff)';
     } else {
+      storedKeySection.style.display = 'none';
       statusElement.textContent = '⚠ No API key configured';
       statusElement.style.color = 'var(--warning-color)';
     }
@@ -8399,6 +8417,34 @@ function toggleApiKeyVisibility() {
     apiKeyInput.type = 'text';
   } else {
     apiKeyInput.type = 'password';
+  }
+}
+
+function toggleStoredKeyVisibility() {
+  const storedKeyDisplay = document.getElementById('storedApiKeyDisplay');
+  if (storedKeyDisplay.type === 'password') {
+    storedKeyDisplay.type = 'text';
+  } else {
+    storedKeyDisplay.type = 'password';
+  }
+}
+
+async function clearApiKey() {
+  if (!confirm('Are you sure you want to clear your custom API key? The app will revert to using the default API key.')) {
+    return;
+  }
+  
+  try {
+    const result = await window.api.clearApiKey();
+    if (result.success) {
+      showNotification('API key cleared successfully', 'success');
+      loadApiKeyStatus();
+    } else {
+      showNotification(result.error || 'Failed to clear API key', 'error');
+    }
+  } catch (error) {
+    console.error('Error clearing API key:', error);
+    showNotification('Failed to clear API key', 'error');
   }
 }
 
