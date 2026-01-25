@@ -8,3 +8,4 @@ connections.json
 *.blockmap
 user-config.json
 changes
+snippets.json
