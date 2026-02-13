@@ -1838,7 +1838,8 @@ body.platform-linux .window-controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 15px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .results-header > div:first-child {
@@ -2340,11 +2341,111 @@ body.platform-linux .window-controls {
   display: table-row-group;
 }
 
-/* Fallback for very large tables - add virtual scrolling container */
+/* Large dataset optimizations */
 .results-table-container.large-dataset {
-  max-height: 70vh; /* Limit to viewport height for better performance */
   overflow-y: auto;
   overflow-x: auto;
+}
+
+/* Add Row button */
+.add-row-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  border: 1px solid var(--success);
+  color: var(--success);
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-row-btn:hover {
+  background: var(--success);
+  color: var(--bg-primary);
+}
+
+.add-row-btn.hidden {
+  display: none;
+}
+
+/* New row input styles */
+.results-table tr.new-row-input {
+  background: rgba(78, 201, 176, 0.08);
+  border: 1px solid var(--success);
+}
+
+.results-table tr.new-row-input td {
+  padding: 0;
+  position: relative;
+}
+
+.results-table tr.new-row-input td .new-row-cell-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.results-table tr.new-row-input td .new-row-cell-input:focus {
+  background: rgba(78, 201, 176, 0.12);
+  outline: 1px solid var(--success);
+  outline-offset: -1px;
+}
+
+.results-table tr.new-row-input td .new-row-cell-input::placeholder {
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 12px;
+}
+
+.results-table tr.new-row-input td.new-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.new-row-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  gap: 3px;
+  transition: all 0.15s;
+}
+
+.new-row-save-btn {
+  background: var(--success);
+  color: var(--bg-primary);
+}
+
+.new-row-save-btn:hover {
+  opacity: 0.85;
+}
+
+.new-row-cancel-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.new-row-cancel-btn:hover {
+  background: var(--error);
+  color: white;
 }
 
 .results-table td.editing {

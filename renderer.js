@@ -174,6 +174,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Initialize AI prompt history
     setupAIHistory();
+    
+    // Initialize Add Row button
+    initAddRowButton();
   } catch (error) {
     console.error('Error initializing app:', error);
     showNotification('Error initializing application', 'error');
@@ -556,6 +559,8 @@ function createConnectionTab(connectionId, serverName, databaseName) {
     queryEditorContent: '',
     queryResults: null, // Store query results for this tab
     queryFields: null,  // Store query fields for this tab
+    resultsInfoText: '', // Store results info text for this tab
+    selectedTableInfo: null, // Store selected table info for this tab
     isActive: false,
     // AI Assistant specific data
     aiChatHistory: [], // Separate chat history for this connection
@@ -728,10 +733,12 @@ function renderConnectionTabs() {
 function switchToTab(tabIndex) {
   if (tabIndex < 0 || tabIndex >= connectionTabs.length) return;
   
-  // Save current query editor content if switching from another tab
+  // Save current tab state before switching away
   if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
     connectionTabs[activeTabIndex].queryEditorContent = queryEditor.value;
     connectionTabs[activeTabIndex].isActive = false;
+    connectionTabs[activeTabIndex].resultsInfoText = resultsInfo ? resultsInfo.textContent : '';
+    connectionTabs[activeTabIndex].selectedTableInfo = selectedTableInfo;
   }
   
   // Switch to new tab
@@ -748,15 +755,34 @@ function switchToTab(tabIndex) {
   updateLineNumbers();
   updateSyntaxHighlight();
   
+  // Restore selectedTableInfo for this tab
+  selectedTableInfo = tab.selectedTableInfo || null;
+  
   // Restore query results if they exist for this tab
+  resultsTableContainer.innerHTML = ''; // Clear previous results first
   if (tab.queryResults && tab.queryFields) {
     renderResultsTable(tab.queryResults, tab.queryFields);
     enableExportButtons();
-    updateResultsInfo(tab.queryResults.length, tab.queryResults.length);
+    // Restore the original results info text
+    if (tab.resultsInfoText && resultsInfo) {
+      resultsInfo.textContent = tab.resultsInfoText;
+    } else {
+      updateResultsInfo(tab.queryResults.length, tab.queryResults.length);
+    }
   } else {
     // Clear results if no previous results for this tab
     resultsTableContainer.innerHTML = '<div class="no-results">Execute a query to see results</div>';
+    hideSearchControls();
+    hideAddRowButton();
     disableExportButtons();
+    if (resultsInfo) resultsInfo.textContent = '';
+  }
+  
+  // Restore or hide the where clause builder based on selectedTableInfo
+  if (selectedTableInfo && selectedTableInfo.info && selectedTableInfo.info.columns) {
+    showWhereClauseBuilder(selectedTableInfo.fullName, selectedTableInfo.info.columns);
+  } else {
+    hideWhereClauseBuilder();
   }
   
   // Update AI chat for this tab
@@ -2451,6 +2477,8 @@ function hideWhereClauseBuilder() {
 
 function filterDatabaseTree(searchTerm) {
   const dbTree = document.getElementById('dbTree');
+  if (!dbTree) return;
+  
   const allTreeItems = dbTree.querySelectorAll('.tree-item');
   const allTreeChildren = dbTree.querySelectorAll('.tree-children');
   
@@ -2467,7 +2495,7 @@ function filterDatabaseTree(searchTerm) {
   
   const searchLower = searchTerm.toLowerCase();
   
-  // First hide all items
+  // First hide all items and containers
   allTreeItems.forEach(item => {
     item.style.display = 'none';
   });
@@ -2475,54 +2503,33 @@ function filterDatabaseTree(searchTerm) {
     container.style.display = 'none';
   });
   
-  // Get all schema containers (first level children)
-  const schemaElements = Array.from(dbTree.children).filter((child, index) => index % 2 === 0);
-  const schemaContainers = Array.from(dbTree.children).filter((child, index) => index % 2 === 1);
+  // Find all matching table/view items (they have data-type attribute)
+  const dataItems = dbTree.querySelectorAll('.tree-item[data-type]');
   
-  schemaElements.forEach((schemaEl, schemaIndex) => {
-    const schemaContainer = schemaContainers[schemaIndex];
-    if (!schemaContainer) return;
+  dataItems.forEach(item => {
+    const itemName = item.dataset.itemName || '';
+    const schemaName = item.dataset.schemaName || '';
+    const fullName = `${schemaName}.${itemName}`;
     
-    let schemaHasMatches = false;
-    
-    // Get Tables and Views folders within this schema
-    const folderElements = Array.from(schemaContainer.children).filter((child, index) => index % 2 === 0);
-    const folderContainers = Array.from(schemaContainer.children).filter((child, index) => index % 2 === 1);
-    
-    folderElements.forEach((folderEl, folderIndex) => {
-      const folderContainer = folderContainers[folderIndex];
-      if (!folderContainer) return;
+    if (itemName.toLowerCase().includes(searchLower) || 
+        schemaName.toLowerCase().includes(searchLower) ||
+        fullName.toLowerCase().includes(searchLower)) {
+      // Show matching item
+      item.style.display = 'flex';
       
-      let folderHasMatches = false;
-      
-      // Check items within this folder (Tables or Views)
-      const items = folderContainer.querySelectorAll('.tree-item[data-type]');
-      
-      items.forEach(item => {
-        const itemName = item.dataset.itemName;
-        const schemaName = item.dataset.schemaName;
-        const fullName = `${schemaName}.${itemName}`;
-        
-        if (itemName.toLowerCase().includes(searchLower) || 
-            schemaName.toLowerCase().includes(searchLower) ||
-            fullName.toLowerCase().includes(searchLower)) {
-          item.style.display = 'flex';
-          folderHasMatches = true;
-          schemaHasMatches = true;
+      // Walk up the DOM tree and show all parent containers and folder headers
+      let parent = item.parentElement;
+      while (parent && parent !== dbTree) {
+        if (parent.classList.contains('tree-children')) {
+          parent.style.display = 'block';
+          // Also show the sibling folder header (the tree-item right before this tree-children)
+          const prevSibling = parent.previousElementSibling;
+          if (prevSibling && prevSibling.classList.contains('tree-item')) {
+            prevSibling.style.display = 'flex';
+          }
         }
-      });
-      
-      // Show folder if it has matches
-      if (folderHasMatches) {
-        folderEl.style.display = 'flex';
-        folderContainer.style.display = 'block';
+        parent = parent.parentElement;
       }
-    });
-    
-    // Show schema if it has matches
-    if (schemaHasMatches) {
-      schemaEl.style.display = 'flex';
-      schemaContainer.style.display = 'block';
     }
   });
 }
@@ -2675,6 +2682,8 @@ async function executeQuery() {
       if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
         connectionTabs[activeTabIndex].queryResults = result.rows || [];
         connectionTabs[activeTabIndex].queryFields = result.fields || [];
+        connectionTabs[activeTabIndex].resultsInfoText = `${result.rowCount} rows in ${result.executionTime}ms`;
+        connectionTabs[activeTabIndex].selectedTableInfo = selectedTableInfo;
       }
       
       if (result.rows && result.rows.length > 0) {
@@ -2890,6 +2899,14 @@ async function executeSelectedQuery() {
       globalState.lastExecutedQuery = query;
       globalState.lastQueryResults = result.rows || [];
       
+      // Save query results to current tab
+      if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+        connectionTabs[activeTabIndex].queryResults = result.rows && result.rows.length > 0 ? result.rows : null;
+        connectionTabs[activeTabIndex].queryFields = result.rows && result.rows.length > 0 ? (result.fields || null) : null;
+        connectionTabs[activeTabIndex].resultsInfoText = `${result.rowCount} rows in ${result.executionTime}ms (selected text)`;
+        connectionTabs[activeTabIndex].selectedTableInfo = selectedTableInfo;
+      }
+      
       if (result.rows && result.rows.length > 0) {
         renderResultsTable(result.rows, result.fields);
       } else {
@@ -2910,6 +2927,13 @@ async function executeSelectedQuery() {
       `;
       // Disable export buttons on error
       disableExportButtons();
+      
+      // Clear results from current tab on error
+      if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+        connectionTabs[activeTabIndex].queryResults = null;
+        connectionTabs[activeTabIndex].queryFields = null;
+      }
+      
       showNotification('Selected query failed', 'error');
     }
   } catch (error) {
@@ -3018,6 +3042,9 @@ async function stopQuery() {
 }
 
 function renderResultsTable(rows, fields) {
+  // Clear previous results
+  resultsTableContainer.innerHTML = '';
+  
   const table = document.createElement('table');
   table.className = 'results-table';
   
@@ -3037,6 +3064,9 @@ function renderResultsTable(rows, fields) {
   
   // Show search controls and populate column dropdown
   setupSearchControls();
+  
+  // Show Add Row button if a table is selected
+  showAddRowButton();
   
   // Header
   const thead = document.createElement('thead');
@@ -3227,21 +3257,8 @@ function addScrollSpacing(container) {
     existingSpacing.remove();
   }
   
-  // Create a spacing element
-  const spacingDiv = document.createElement('div');
-  spacingDiv.className = 'scroll-spacing';
-  
-  // Calculate the height needed: container height minus a few rows
-  // This allows the last row to scroll all the way to the top
-  const containerHeight = container.clientHeight;
-  const spacingHeight = Math.max(containerHeight - 150, 300); // Minimum 300px
-  
-  spacingDiv.style.height = `${spacingHeight}px`;
-  spacingDiv.style.pointerEvents = 'none';
-  
-  container.appendChild(spacingDiv);
-  
-  console.log(`Added scroll spacing: ${spacingHeight}px for container height: ${containerHeight}px`);
+  // No extra spacing needed - the container should fill available space naturally
+  // Only add minimal spacing if the table content is shorter than the container
 }
 
 // Enhance scrolling behavior for large datasets
@@ -3384,6 +3401,9 @@ function performSearch() {
   let visibleCount = 0;
   
   rows.forEach((row, index) => {
+    // Skip the add-row input row
+    if (row.classList.contains('new-row-input')) return;
+    
     const cells = row.querySelectorAll('td');
     let shouldShow = false;
     
@@ -3476,7 +3496,7 @@ function highlightSearchTerm(cell, searchTerm) {
         if (start > 0) truncated = '...' + truncated;
         if (end < fullValue.length) truncated = truncated + '...';
         
-        displayText = truncated.replace(regex, '<span class="search-highlight">$1</span>');
+        displayText = truncated.replace(regex, '<span class="search-highlight">$&</span>');
       }
     }
     
@@ -4101,6 +4121,249 @@ function hideSearchControls() {
   const searchContainer = document.getElementById('resultsSearch');
   if (searchContainer) {
     searchContainer.style.display = 'none';
+  }
+  // Hide add row button
+  const addRowBtn = document.getElementById('addRowBtn');
+  if (addRowBtn) {
+    addRowBtn.classList.add('hidden');
+  }
+}
+
+// ============ Add Row Feature ============
+
+function showAddRowButton() {
+  const addRowBtn = document.getElementById('addRowBtn');
+  if (addRowBtn && selectedTableInfo && selectedTableInfo.type !== 'view') {
+    addRowBtn.classList.remove('hidden');
+  }
+}
+
+function hideAddRowButton() {
+  const addRowBtn = document.getElementById('addRowBtn');
+  if (addRowBtn) {
+    addRowBtn.classList.add('hidden');
+  }
+}
+
+function initAddRowButton() {
+  const addRowBtn = document.getElementById('addRowBtn');
+  if (addRowBtn) {
+    addRowBtn.addEventListener('click', handleAddRow);
+  }
+}
+
+function handleAddRow() {
+  if (!selectedTableInfo || selectedTableInfo.type === 'view') {
+    showNotification('Select a table first to add rows', 'warning');
+    return;
+  }
+
+  const table = resultsTableContainer.querySelector('.results-table');
+  if (!table) {
+    showNotification('Execute a query first to see results', 'warning');
+    return;
+  }
+
+  // Check if there's already a new-row-input row
+  const existingNewRow = table.querySelector('tr.new-row-input');
+  if (existingNewRow) {
+    // Focus the first input in the existing row
+    const firstInput = existingNewRow.querySelector('.new-row-cell-input');
+    if (firstInput) firstInput.focus();
+    return;
+  }
+
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+
+  const columns = selectedTableInfo.info.columns || [];
+  const fields = window.currentQueryFields || [];
+
+  // Create new editable row
+  const newRow = document.createElement('tr');
+  newRow.className = 'new-row-input';
+
+  // Line number cell with action buttons
+  const lineNumCell = document.createElement('td');
+  lineNumCell.className = 'new-row-actions';
+  lineNumCell.innerHTML = `
+    <button class="new-row-action-btn new-row-save-btn" title="Save row (Enter)">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+      </svg>
+      Save
+    </button>
+    <button class="new-row-action-btn new-row-cancel-btn" title="Cancel (Escape)">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+      </svg>
+      Cancel
+    </button>
+  `;
+  newRow.appendChild(lineNumCell);
+
+  // Create input cells for each column
+  const inputCells = [];
+  fields.forEach((fieldName, idx) => {
+    const td = document.createElement('td');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'new-row-cell-input';
+    
+    // Find column info for placeholder
+    const colInfo = columns.find(c => c.name === fieldName);
+    const colType = colInfo ? colInfo.type : '';
+    const isNullable = colInfo ? colInfo.nullable !== false : true;
+    const hasDefault = colInfo ? colInfo.defaultValue || colInfo.default_value : false;
+    
+    let placeholderText = fieldName;
+    if (colType) placeholderText += ` (${colType})`;
+    if (hasDefault) placeholderText += ' [has default]';
+    if (isNullable) placeholderText += ' [nullable]';
+    input.placeholder = placeholderText;
+    
+    input.dataset.columnName = fieldName;
+    input.dataset.columnIndex = idx;
+    
+    // Tab to next input, Shift+Tab to previous
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveNewRow(newRow, fields);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelNewRow(newRow);
+      } else if (e.key === 'Tab') {
+        // Natural tab behavior will move to next input
+        // If it's the last input and not shift, move to save button  
+        if (!e.shiftKey && idx === fields.length - 1) {
+          e.preventDefault();
+          saveNewRow(newRow, fields);
+        }
+      }
+    });
+    
+    td.appendChild(input);
+    newRow.appendChild(td);
+    inputCells.push(input);
+  });
+
+  // Add save/cancel handlers
+  const saveBtn = lineNumCell.querySelector('.new-row-save-btn');
+  const cancelBtn = lineNumCell.querySelector('.new-row-cancel-btn');
+  
+  saveBtn.addEventListener('click', () => saveNewRow(newRow, fields));
+  cancelBtn.addEventListener('click', () => cancelNewRow(newRow));
+
+  // Insert at the top of tbody
+  tbody.insertBefore(newRow, tbody.firstChild);
+
+  // Scroll to top of results to show the new row
+  resultsTableContainer.scrollTop = 0;
+
+  // Focus the first input
+  if (inputCells.length > 0) {
+    setTimeout(() => inputCells[0].focus(), 50);
+  }
+}
+
+function cancelNewRow(row) {
+  if (row && row.parentNode) {
+    row.remove();
+  }
+}
+
+async function saveNewRow(row, fields) {
+  if (!selectedTableInfo) {
+    showNotification('No table context available', 'error');
+    return;
+  }
+
+  const inputs = row.querySelectorAll('.new-row-cell-input');
+  const values = {};
+  const columnsToInsert = [];
+  const valuePlaceholders = [];
+  const paramValues = [];
+
+  let paramIndex = 1;
+  inputs.forEach((input, idx) => {
+    const val = input.value.trim();
+    const colName = input.dataset.columnName;
+    
+    // Skip empty values - let database use defaults
+    if (val === '') return;
+    
+    columnsToInsert.push(quoteIdentifierIfNeeded(colName));
+    
+    // Handle special values
+    if (val.toUpperCase() === 'NULL') {
+      valuePlaceholders.push('NULL');
+    } else if (val.toUpperCase() === 'TRUE' || val.toUpperCase() === 'FALSE') {
+      valuePlaceholders.push(val.toUpperCase());
+    } else if (val.toUpperCase() === 'NOW()' || val.toUpperCase() === 'CURRENT_TIMESTAMP') {
+      valuePlaceholders.push(val);
+    } else if (!isNaN(val) && val !== '') {
+      // Numeric value
+      valuePlaceholders.push(val);
+    } else {
+      // String value - escape single quotes
+      valuePlaceholders.push(`'${val.replace(/'/g, "''")}'`);
+    }
+  });
+
+  if (columnsToInsert.length === 0) {
+    showNotification('Please fill in at least one field', 'warning');
+    return;
+  }
+
+  // Build INSERT query
+  const quotedSchema = quoteIdentifierIfNeeded(selectedTableInfo.schema);
+  const quotedTable = quoteIdentifierIfNeeded(selectedTableInfo.name);
+  const tableName = `${quotedSchema}.${quotedTable}`;
+
+  const insertQuery = `INSERT INTO ${tableName} (${columnsToInsert.join(', ')}) VALUES (${valuePlaceholders.join(', ')});`;
+
+  try {
+    // Disable save button to prevent double-click
+    const saveBtn = row.querySelector('.new-row-save-btn');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+    }
+
+    const result = await window.api.executeQuery(currentConnectionId, insertQuery);
+
+    if (result.success) {
+      showNotification('Row inserted successfully!', 'success');
+      // Remove the input row
+      cancelNewRow(row);
+      // Re-execute the current query to refresh results
+      executeQuery();
+    } else {
+      showNotification(`Insert failed: ${result.error}`, 'error');
+      // Re-enable save button
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = `
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+          </svg>
+          Save
+        `;
+      }
+    }
+  } catch (error) {
+    showNotification(`Insert failed: ${error.message}`, 'error');
+    const saveBtn = row.querySelector('.new-row-save-btn');
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+        </svg>
+        Save
+      `;
+    }
   }
 }
 
