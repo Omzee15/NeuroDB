@@ -1131,6 +1131,84 @@ body.platform-linux .window-controls {
   font-weight: 700;
 }
 
+/* Filter Rows Container */
+#filterRowsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.filter-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-row-content {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+
+.filter-logic-select {
+  padding: 6px 8px;
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 4px;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  min-width: 65px;
+  text-align: center;
+}
+
+.filter-logic-select:focus {
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.3);
+}
+
+.btn-remove-filter {
+  padding: 4px 6px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-remove-filter:hover {
+  background: var(--error);
+  border-color: var(--error);
+  color: white;
+}
+
+.where-builder-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.btn-add-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.btn-add-filter svg {
+  width: 12px;
+  height: 12px;
+}
+
 .where-builder-controls {
   display: flex;
   gap: 8px;

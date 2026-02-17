@@ -45,9 +45,10 @@ let welcomeScreen, databaseView, connectionsList, connectionModal, connectionFor
 let queryEditor, resultsTableContainer, resultsInfo;
 let aiPrompt, aiPanel, aiChatContainer, aiChatInput;
 let dbTree, psqlOutput, psqlInput;
-let whereClauseBuilder, selectedTableName, columnSelect, operatorSelect, valueInput;
+let whereClauseBuilder, selectedTableName, filterRowsContainer, addFilterBtn;
 let executeWhereBtn, closeWhereBuilder;
 let executeQueryBtn, executeSelectedBtn, stopQueryBtn, limitSelect;
+let filterRowCounter = 0; // Counter for unique filter row IDs
 
 // Initialize all DOM element references
 function initializeDOMElements() {
@@ -68,9 +69,8 @@ function initializeDOMElements() {
   psqlInput = document.getElementById('psqlInput');
   whereClauseBuilder = document.getElementById('whereClauseBuilder');
   selectedTableName = document.getElementById('selectedTableName');
-  columnSelect = document.getElementById('columnSelect');
-  operatorSelect = document.getElementById('operatorSelect');
-  valueInput = document.getElementById('valueInput');
+  filterRowsContainer = document.getElementById('filterRowsContainer');
+  addFilterBtn = document.getElementById('addFilterBtn');
   executeWhereBtn = document.getElementById('executeWhereBtn');
   closeWhereBuilder = document.getElementById('closeWhereBuilder');
   executeQueryBtn = document.getElementById('executeQueryBtn');
@@ -1313,6 +1313,7 @@ function setupEventListeners() {
   // Where Clause Builder
   executeWhereBtn.addEventListener('click', generateWhereQuery);
   closeWhereBuilder.addEventListener('click', hideWhereClauseBuilder);
+  addFilterBtn.addEventListener('click', addFilterRow);
   
   // Backup Database Button
   document.getElementById('backupDatabaseBtn')?.addEventListener('click', () => {
@@ -1327,31 +1328,6 @@ function setupEventListeners() {
         }
       }
       downloadDatabaseBackup(currentConnectionId, databaseName);
-    }
-  });
-  
-  // Handle Enter key in value input
-  valueInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      generateWhereQuery();
-    }
-  });
-  
-  // Auto-hide certain operators that don't need values
-  operatorSelect.addEventListener('change', (e) => {
-    const operator = e.target.value;
-    if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
-      valueInput.style.display = 'none';
-    } else {
-      valueInput.style.display = 'block';
-      if (operator === 'IN' || operator === 'NOT IN') {
-        valueInput.placeholder = 'Enter comma-separated values...';
-      } else if (operator === 'LIKE' || operator === 'ILIKE') {
-        valueInput.placeholder = 'Enter pattern (use % for wildcard)...';
-      } else {
-        valueInput.placeholder = 'Enter value...';
-      }
     }
   });
   
@@ -2453,21 +2429,143 @@ function showWhereClauseBuilder(tableName, columns) {
   // Update table name in header
   selectedTableName.textContent = tableName;
   
-  // Clear and populate column dropdown
-  columnSelect.innerHTML = '<option value="">Select Column</option>';
-  columns.forEach(column => {
-    const option = document.createElement('option');
-    option.value = column.name;
-    option.textContent = `${column.name} (${column.type})`;
-    columnSelect.appendChild(option);
-  });
+  // Store columns for use when creating filter rows
+  selectedTableInfo.availableColumns = columns;
   
-  // Reset form
-  operatorSelect.value = '=';
-  valueInput.value = '';
+  // Clear existing filter rows
+  filterRowsContainer.innerHTML = '';
+  filterRowCounter = 0;
+  
+  // Add the first filter row by default
+  addFilterRow();
   
   // Show the where clause builder
   whereClauseBuilder.classList.remove('hidden');
+}
+
+// Create a new filter row element
+function createFilterRowElement(isFirst = false) {
+  const rowId = filterRowCounter++;
+  const columns = selectedTableInfo?.availableColumns || [];
+  
+  const filterRow = document.createElement('div');
+  filterRow.className = 'filter-row';
+  filterRow.dataset.rowId = rowId;
+  
+  // Logic selector (AND/OR) - only show for non-first rows
+  let logicHtml = '';
+  if (!isFirst) {
+    logicHtml = `
+      <select class="filter-logic-select" data-row-id="${rowId}">
+        <option value="AND">AND</option>
+        <option value="OR">OR</option>
+      </select>
+    `;
+  }
+  
+  // Column options
+  let columnOptions = '<option value="">Select Column</option>';
+  columns.forEach(column => {
+    columnOptions += `<option value="${column.name}">${column.name} (${column.type})</option>`;
+  });
+  
+  filterRow.innerHTML = `
+    ${logicHtml}
+    <div class="filter-row-content">
+      <select class="where-dropdown column-select" data-row-id="${rowId}">
+        ${columnOptions}
+      </select>
+      <select class="where-dropdown operator-select" data-row-id="${rowId}">
+        <option value="=">=</option>
+        <option value="!=">!=</option>
+        <option value="<">&lt;</option>
+        <option value="<=">&lt;=</option>
+        <option value=">">&gt;</option>
+        <option value=">=">&gt;=</option>
+        <option value="LIKE">LIKE</option>
+        <option value="ILIKE">ILIKE</option>
+        <option value="IN">IN</option>
+        <option value="NOT IN">NOT IN</option>
+        <option value="IS NULL">IS NULL</option>
+        <option value="IS NOT NULL">IS NOT NULL</option>
+      </select>
+      <input type="text" class="where-input value-input" data-row-id="${rowId}" placeholder="Enter value...">
+      ${!isFirst ? `
+        <button class="btn-remove-filter" data-row-id="${rowId}" title="Remove filter">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+          </svg>
+        </button>
+      ` : ''}
+    </div>
+  `;
+  
+  // Add event listener to remove button if it exists
+  const removeBtn = filterRow.querySelector('.btn-remove-filter');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', () => removeFilterRow(rowId));
+  }
+  
+  // Add event listener to operator select to hide/show value input
+  const operatorSelect = filterRow.querySelector('.operator-select');
+  const valueInput = filterRow.querySelector('.value-input');
+  operatorSelect.addEventListener('change', () => {
+    const operator = operatorSelect.value;
+    if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
+      valueInput.style.display = 'none';
+      valueInput.value = '';
+    } else {
+      valueInput.style.display = 'block';
+      // Update placeholder based on operator
+      const op = operatorSelect.value;
+      if (op === 'IN' || op === 'NOT IN') {
+        valueInput.placeholder = 'Enter comma-separated values...';
+      } else if (op === 'LIKE' || op === 'ILIKE') {
+        valueInput.placeholder = 'Enter pattern (use % for wildcard)...';
+      } else {
+        valueInput.placeholder = 'Enter value...';
+      }
+    }
+  });
+  
+  // Handle Enter key to execute filter
+  valueInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      generateWhereQuery();
+    }
+  });
+  
+  return filterRow;
+}
+
+// Add a new filter row
+function addFilterRow() {
+  const isFirst = filterRowsContainer.children.length === 0;
+  const filterRow = createFilterRowElement(isFirst);
+  filterRowsContainer.appendChild(filterRow);
+}
+
+// Remove a filter row by ID
+function removeFilterRow(rowId) {
+  const filterRow = filterRowsContainer.querySelector(`.filter-row[data-row-id="${rowId}"]`);
+  if (filterRow) {
+    filterRow.remove();
+    
+    // If all rows are removed, add a new first row
+    if (filterRowsContainer.children.length === 0) {
+      addFilterRow();
+    } else {
+      // Update the first row to not have a logic selector
+      const firstRow = filterRowsContainer.querySelector('.filter-row');
+      if (firstRow) {
+        const logicSelect = firstRow.querySelector('.filter-logic-select');
+        if (logicSelect) {
+          logicSelect.remove();
+        }
+      }
+    }
+  }
 }
 
 function hideWhereClauseBuilder() {
@@ -2540,47 +2638,72 @@ function generateWhereQuery() {
     return;
   }
   
-  const column = columnSelect.value;
-  const operator = operatorSelect.value;
-  const value = valueInput.value.trim();
+  // Collect all filter conditions from the filter rows
+  const filterRows = filterRowsContainer.querySelectorAll('.filter-row');
+  const conditions = [];
   
-  if (!column) {
-    showNotification('Please select a column', 'error');
+  for (const row of filterRows) {
+    const columnSelect = row.querySelector('.column-select');
+    const operatorSelect = row.querySelector('.operator-select');
+    const valueInput = row.querySelector('.value-input');
+    const logicSelect = row.querySelector('.filter-logic-select');
+    
+    const column = columnSelect?.value;
+    const operator = operatorSelect?.value;
+    const value = valueInput?.value.trim() || '';
+    const logic = logicSelect?.value || 'AND';
+    
+    if (!column) {
+      showNotification('Please select a column for all filters', 'error');
+      return;
+    }
+    
+    // Quote column name if it contains capital letters or special characters
+    const quotedColumn = quoteIdentifierIfNeeded(column);
+    
+    // Build the WHERE clause for this condition
+    let condition = '';
+    let formattedValue = value;
+    
+    // Handle different operators
+    if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
+      condition = `${quotedColumn} ${operator}`;
+    } else if (operator === 'IN' || operator === 'NOT IN') {
+      if (!value) {
+        showNotification('Please enter values for IN/NOT IN (comma-separated)', 'error');
+        return;
+      }
+      // Parse comma-separated values and format them
+      const values = value.split(',').map(v => `'${v.trim()}'`).join(', ');
+      condition = `${quotedColumn} ${operator} (${values})`;
+    } else {
+      if (!value) {
+        showNotification('Please enter a value for all filters', 'error');
+        return;
+      }
+      
+      // Quote the value if it's not a number
+      if (isNaN(value) && operator !== 'LIKE' && operator !== 'ILIKE') {
+        formattedValue = `'${value}'`;
+      } else if (operator === 'LIKE' || operator === 'ILIKE') {
+        formattedValue = `'${value}'`;
+      }
+      
+      condition = `${quotedColumn} ${operator} ${formattedValue}`;
+    }
+    
+    conditions.push({ condition, logic });
+  }
+  
+  if (conditions.length === 0) {
+    showNotification('Please add at least one filter condition', 'error');
     return;
   }
   
-  // Quote column name if it contains capital letters or special characters
-  const quotedColumn = quoteIdentifierIfNeeded(column);
-  
-  // Build the WHERE clause
-  let whereClause = '';
-  let formattedValue = value;
-  
-  // Handle different operators
-  if (operator === 'IS NULL' || operator === 'IS NOT NULL') {
-    whereClause = `${quotedColumn} ${operator}`;
-  } else if (operator === 'IN' || operator === 'NOT IN') {
-    if (!value) {
-      showNotification('Please enter values for IN/NOT IN (comma-separated)', 'error');
-      return;
-    }
-    // Parse comma-separated values and format them
-    const values = value.split(',').map(v => `'${v.trim()}'`).join(', ');
-    whereClause = `${quotedColumn} ${operator} (${values})`;
-  } else {
-    if (!value) {
-      showNotification('Please enter a value', 'error');
-      return;
-    }
-    
-    // Quote the value if it's not a number
-    if (isNaN(value) && operator !== 'LIKE' && operator !== 'ILIKE') {
-      formattedValue = `'${value}'`;
-    } else if (operator === 'LIKE' || operator === 'ILIKE') {
-      formattedValue = `'${value}'`;
-    }
-    
-    whereClause = `${quotedColumn} ${operator} ${formattedValue}`;
+  // Build the combined WHERE clause
+  let whereClause = conditions[0].condition;
+  for (let i = 1; i < conditions.length; i++) {
+    whereClause += `\n  ${conditions[i].logic} ${conditions[i].condition}`;
   }
   
   // Generate the full query with properly formatted table name

@@ -256,25 +256,16 @@
                     </svg>
                   </button>
                 </div>
-                <div class="where-builder-controls">
-                  <select id="columnSelect" class="where-dropdown">
-                    <option value="">Select Column</option>
-                  </select>
-                  <select id="operatorSelect" class="where-dropdown">
-                    <option value="=">=</option>
-                    <option value="!=">!=</option>
-                    <option value="<">&lt;</option>
-                    <option value="<=">&lt;=</option>
-                    <option value=">">&gt;</option>
-                    <option value=">=">&gt;=</option>
-                    <option value="LIKE">LIKE</option>
-                    <option value="ILIKE">ILIKE</option>
-                    <option value="IN">IN</option>
-                    <option value="NOT IN">NOT IN</option>
-                    <option value="IS NULL">IS NULL</option>
-                    <option value="IS NOT NULL">IS NOT NULL</option>
-                  </select>
-                  <input type="text" id="valueInput" class="where-input" placeholder="Enter value...">
+                <div id="filterRowsContainer">
+                  <!-- Filter rows will be dynamically added here -->
+                </div>
+                <div class="where-builder-actions">
+                  <button class="btn-secondary btn-add-filter" id="addFilterBtn" title="Add another filter">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    Add Filter
+                  </button>
                   <button class="btn-primary" id="executeWhereBtn">Filter</button>
                 </div>
               </div>
