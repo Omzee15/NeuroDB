@@ -297,6 +297,18 @@ function renderConnections() {
         <span class="server-name">${server.name}</span>
       </div>
       <div class="server-actions">
+        <button class="btn-icon" onclick="editServer('${server.id}')" title="Edit Server">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z"/>
+          </svg>
+        </button>
+        <button class="btn-icon" onclick="exportServerConnection('${server.id}')" title="Export Connection">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 10v3a1 1 0 01-1 1H3a1 1 0 01-1-1v-3"/>
+            <polyline points="4 6 8 2 12 6"/>
+            <line x1="8" y1="2" x2="8" y2="11"/>
+          </svg>
+        </button>
         <button class="btn-icon" onclick="openAddDatabaseModal('${server.id}')" title="Add Database">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
@@ -927,6 +939,11 @@ function setupEventListeners() {
   document.getElementById('welcomeAddConnection')?.addEventListener('click', () => openConnectionModal());
   document.getElementById('closeConnectionModal')?.addEventListener('click', () => closeConnectionModal());
   document.getElementById('cancelConnectionBtn')?.addEventListener('click', () => closeConnectionModal());
+
+  // Export Connection Modal
+  document.getElementById('closeExportConnectionModal')?.addEventListener('click', () => closeExportConnectionModal());
+  document.getElementById('copyConnectionBtn')?.addEventListener('click', () => copyConnectionToClipboard());
+  document.getElementById('exportConnectionFileBtn')?.addEventListener('click', () => exportConnectionToFile());
 
   // Connection URL toggle
   document.getElementById('useConnectionUrl')?.addEventListener('change', (e) => {
@@ -1604,8 +1621,9 @@ function openConnectionModal(connection = null) {
     document.getElementById('connectionName').value = connection.name;
     document.getElementById('connectionHost').value = connection.host;
     document.getElementById('connectionPort').value = connection.port;
-    document.getElementById('connectionDatabase').value = connection.database;
+    document.getElementById('connectionDatabase').value = connection.database || '';
     document.getElementById('connectionUser').value = connection.user;
+    document.getElementById('connectionPassword').value = connection.password || '';
   } else {
     document.getElementById('connectionModalTitle').textContent = 'Add Connection';
     connectionForm.reset();
@@ -1730,6 +1748,91 @@ async function saveConnection(e) {
     }
   } catch (error) {
     showNotification('Error saving server: ' + error.message, 'error');
+  }
+}
+
+function editServer(serverId) {
+  const server = connections.find(s => s.id === serverId);
+  if (!server) {
+    showNotification('Server not found', 'error');
+    return;
+  }
+  openConnectionModal(server);
+}
+
+function exportServerConnection(serverId) {
+  const server = connections.find(s => s.id === serverId);
+  if (!server) {
+    showNotification('Server not found', 'error');
+    return;
+  }
+  
+  const exportData = {
+    name: server.name,
+    host: server.host,
+    port: server.port,
+    user: server.user,
+    password: server.password,
+    ...(server.ssl !== undefined && { ssl: server.ssl }),
+    ...(server.sslmode !== undefined && { sslmode: server.sslmode }),
+    databases: (server.databases || []).map(db => db.name)
+  };
+  
+  const jsonContent = JSON.stringify(exportData, null, 2);
+  
+  // Show modal with connection details
+  const modal = document.getElementById('exportConnectionModal');
+  document.getElementById('exportConnectionTitle').textContent = `${server.name} — Connection Details`;
+  document.getElementById('exportConnectionData').textContent = jsonContent;
+  modal.dataset.serverName = server.name;
+  modal.dataset.jsonContent = jsonContent;
+  modal.classList.remove('hidden');
+}
+
+function closeExportConnectionModal() {
+  document.getElementById('exportConnectionModal').classList.add('hidden');
+}
+
+function copyConnectionToClipboard() {
+  const modal = document.getElementById('exportConnectionModal');
+  const jsonContent = modal.dataset.jsonContent;
+  navigator.clipboard.writeText(jsonContent).then(() => {
+    showNotification('Connection details copied to clipboard', 'success');
+  }).catch(() => {
+    // Fallback
+    const textarea = document.createElement('textarea');
+    textarea.value = jsonContent;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    showNotification('Connection details copied to clipboard', 'success');
+  });
+}
+
+async function exportConnectionToFile() {
+  const modal = document.getElementById('exportConnectionModal');
+  const jsonContent = modal.dataset.jsonContent;
+  const serverName = modal.dataset.serverName;
+  
+  try {
+    const result = await window.api.saveFile({
+      content: jsonContent,
+      defaultPath: `${serverName.replace(/[^a-z0-9]/gi, '_')}_connection.json`,
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    
+    if (result.success) {
+      showNotification('Connection details exported successfully', 'success');
+      closeExportConnectionModal();
+    } else if (!result.canceled) {
+      showNotification('Failed to export: ' + (result.error || 'Unknown error'), 'error');
+    }
+  } catch (error) {
+    showNotification('Error exporting connection: ' + error.message, 'error');
   }
 }
 

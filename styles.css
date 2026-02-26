@@ -2927,6 +2927,23 @@ body.platform-linux .window-controls {
 
 /* Duplicate btn-danger rule removed - using the one above */
 
+/* Export Connection Preview */
+.export-connection-preview {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 350px;
+  overflow-y: auto;
+  margin: 0;
+}
+
 /* Modal */
 .modal {
   position: fixed;
