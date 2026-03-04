@@ -2900,6 +2900,12 @@ async function executeQuery() {
     if (result.success) {
       resultsInfo.textContent = `${result.rowCount} rows in ${result.executionTime}ms`;
       
+      // If this is a SELECT query with a LIMIT, fetch total count in the background
+      const isSelectWithLimit = query.trim().toLowerCase().startsWith('select') && /\blimit\s+\d+/i.test(query);
+      if (isSelectWithLimit && currentConnectionId) {
+        fetchTotalCountForQuery(query, result.rowCount, result.executionTime);
+      }
+      
       // Update global state for cell editing
       globalState.lastExecutedQuery = query;
       globalState.lastQueryResults = result.rows || [];
@@ -3120,6 +3126,12 @@ async function executeSelectedQuery() {
     
     if (result.success) {
       resultsInfo.textContent = `${result.rowCount} rows in ${result.executionTime}ms (selected text)`;
+      
+      // If this is a SELECT query with a LIMIT, fetch total count in the background
+      const isSelectWithLimit = query.trim().toLowerCase().startsWith('select') && /\blimit\s+\d+/i.test(query);
+      if (isSelectWithLimit && currentConnectionId) {
+        fetchTotalCountForQuery(query, result.rowCount, result.executionTime, ' (selected text)');
+      }
       
       // Update global state for cell editing
       globalState.lastExecutedQuery = query;
@@ -5783,6 +5795,41 @@ function handleLimitChange() {
   // Show notification about the change
   const limitText = currentLimit === 'all' ? 'no limit' : `${currentLimit} rows`;
   showNotification(`Query limit set to ${limitText}`, 'info');
+}
+
+// Fetch total count for a SELECT query with LIMIT (runs in background)
+async function fetchTotalCountForQuery(originalQuery, displayedRowCount, executionTime, suffix = '') {
+  try {
+    // Remove the LIMIT clause to build a COUNT query
+    let queryWithoutLimit = originalQuery.replace(/\s*LIMIT\s+\d+\s*;?\s*$/i, '');
+    queryWithoutLimit = queryWithoutLimit.trim();
+    if (queryWithoutLimit.endsWith(';')) {
+      queryWithoutLimit = queryWithoutLimit.slice(0, -1).trim();
+    }
+
+    // Build a COUNT(*) query by wrapping the original query (without LIMIT) as a subquery
+    const countQuery = `SELECT COUNT(*) AS total_count FROM (${queryWithoutLimit}) AS _count_subquery;`;
+
+    const countResult = await window.api.executeQuery(currentConnectionId, countQuery);
+
+    if (countResult.success && countResult.rows && countResult.rows.length > 0) {
+      const totalCount = parseInt(countResult.rows[0].total_count, 10);
+
+      // Only update if total count is greater than displayed rows (meaning LIMIT actually truncated results)
+      if (totalCount > displayedRowCount) {
+        const infoText = `${displayedRowCount} of ${totalCount.toLocaleString()} total rows in ${executionTime}ms${suffix}`;
+        resultsInfo.textContent = infoText;
+
+        // Also update the tab's stored results info
+        if (activeTabIndex >= 0 && activeTabIndex < connectionTabs.length) {
+          connectionTabs[activeTabIndex].resultsInfoText = infoText;
+        }
+      }
+    }
+  } catch (err) {
+    // Silently ignore count query failures — the main query result is already shown
+    console.warn('Failed to fetch total count:', err);
+  }
 }
 
 // Apply limit to query string
