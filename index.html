@@ -46,6 +46,13 @@
               </svg>
               Snippets
             </div>
+            <div class="header-tab" data-tab="saved-queries">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M2 2h12v12H2z" stroke="currentColor" fill="none" stroke-width="1.2"/>
+                <path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+              Saved Queries
+            </div>
             <div class="header-tab" data-tab="variables">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
@@ -574,6 +581,34 @@
               </div>
             </div>
 
+            <!-- Saved Queries Tab -->
+            <div class="main-tab-content" data-main-content="saved-queries">
+              <div class="saved-queries-container">
+                <div class="saved-queries-header">
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <h3>Saved Queries</h3>
+                  </div>
+                  <div style="display: flex; gap: 8px; align-items: center;">
+                    <div class="saved-queries-search-wrapper">
+                      <svg class="saved-queries-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                      </svg>
+                      <input type="text" id="savedQueriesSearch" placeholder="Search saved queries..." class="saved-queries-search-input" />
+                    </div>
+                    <button class="btn-primary" id="addSavedQueryBtn">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2"/>
+                      </svg>
+                      Save New Query
+                    </button>
+                  </div>
+                </div>
+                <div class="saved-queries-list" id="savedQueriesList">
+                  <div class="no-results">No saved queries yet. Save your first query to get started!</div>
+                </div>
+              </div>
+            </div>
+
             <!-- Variables Tab -->
             <div class="main-tab-content" data-main-content="variables">
               <div class="variables-container">
@@ -818,6 +853,58 @@
         <div class="form-actions-right">
           <button type="button" class="btn-secondary" id="cancelSnippetBtn">Cancel</button>
           <button type="submit" class="btn-primary">Save</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Add/Edit Saved Query -->
+<div class="modal hidden" id="savedQueryModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="savedQueryModalTitle">Save Query</h2>
+      <button class="btn-icon" id="closeSavedQueryModal">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+
+    <form id="savedQueryForm" class="connection-form">
+      <input type="hidden" id="savedQueryId">
+      
+      <div class="form-group">
+        <label for="savedQueryTitle">Title</label>
+        <input type="text" id="savedQueryTitle" required placeholder="e.g., Active Users Report">
+      </div>
+
+      <div class="form-group">
+        <label for="savedQueryDescription">Description (optional)</label>
+        <textarea 
+          id="savedQueryDescription" 
+          placeholder="Describe what this query does..."
+          rows="2"
+          style="padding: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); width: 100%; resize: vertical; font-family: inherit;"
+        ></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="savedQuerySQL">SQL Query</label>
+        <textarea 
+          id="savedQuerySQL" 
+          required 
+          placeholder="SELECT * FROM users WHERE active = true;"
+          rows="8"
+          style="font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; padding: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); width: 100%; resize: vertical;"
+        ></textarea>
+      </div>
+
+      <div class="form-actions">
+        <div></div>
+        <div class="form-actions-right">
+          <button type="button" class="btn-secondary" id="cancelSavedQueryBtn">Cancel</button>
+          <button type="submit" class="btn-primary">Save Query</button>
         </div>
       </div>
     </form>

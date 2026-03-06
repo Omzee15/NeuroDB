@@ -6,6 +6,7 @@ let connections = [];
 let snippets = JSON.parse(localStorage.getItem('neurodb_snippets')) || [];
 let variables = JSON.parse(localStorage.getItem('neurodb_variables')) || [];
 let queryHistory = []; // Store query history for current session
+let savedQueries = JSON.parse(localStorage.getItem('neurodb_saved_queries')) || [];
 let currentMainTab = 'query';
 let globalState = {
   lastExecutedQuery: '',
@@ -146,6 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Load saved snippets and variables
     loadSnippets();
     loadVariables();
+    loadSavedQueries();
     
     // Initialize limit dropdown
     initializeLimitDropdown();
@@ -1179,6 +1181,19 @@ function setupEventListeners() {
   });
   document.getElementById('snippetForm')?.addEventListener('submit', saveSnippet);
   
+  // Saved Queries
+  document.getElementById('addSavedQueryBtn')?.addEventListener('click', () => openSavedQueryModal());
+  document.getElementById('closeSavedQueryModal')?.addEventListener('click', () => {
+    document.getElementById('savedQueryModal').classList.add('hidden');
+  });
+  document.getElementById('cancelSavedQueryBtn')?.addEventListener('click', () => {
+    document.getElementById('savedQueryModal').classList.add('hidden');
+  });
+  document.getElementById('savedQueryForm')?.addEventListener('submit', handleSaveSavedQuery);
+  document.getElementById('savedQueriesSearch')?.addEventListener('input', (e) => {
+    renderSavedQueries(e.target.value.trim());
+  });
+
   // Variables
   document.getElementById('addVariableBtn')?.addEventListener('click', () => openVariableModal());
   document.getElementById('closeVariableModal')?.addEventListener('click', () => {
@@ -5658,6 +5673,9 @@ function switchMainTab(tabName) {
     case 'snippets':
       loadSnippets();
       break;
+    case 'saved-queries':
+      renderSavedQueries();
+      break;
     case 'variables':
       loadVariables();
       break;
@@ -6195,6 +6213,198 @@ function generateSampleOutput(query, placeholders) {
   });
   
   return output.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ===== SAVED QUERIES FEATURE =====
+
+function loadSavedQueries() {
+  try {
+    const saved = localStorage.getItem('neurodb_saved_queries');
+    savedQueries = saved ? JSON.parse(saved) : [];
+  } catch (error) {
+    console.error('Error loading saved queries:', error);
+    savedQueries = [];
+  }
+}
+
+function persistSavedQueries() {
+  try {
+    localStorage.setItem('neurodb_saved_queries', JSON.stringify(savedQueries));
+  } catch (error) {
+    console.error('Error saving queries to localStorage:', error);
+  }
+}
+
+function openSavedQueryModal(query = null) {
+  const modal = document.getElementById('savedQueryModal');
+  const form = document.getElementById('savedQueryForm');
+
+  if (query) {
+    document.getElementById('savedQueryModalTitle').textContent = 'Edit Saved Query';
+    document.getElementById('savedQueryId').value = query.id;
+    document.getElementById('savedQueryTitle').value = query.title;
+    document.getElementById('savedQueryDescription').value = query.description || '';
+    document.getElementById('savedQuerySQL').value = query.sql;
+  } else {
+    document.getElementById('savedQueryModalTitle').textContent = 'Save New Query';
+    form.reset();
+    document.getElementById('savedQueryId').value = '';
+    // Pre-fill with current editor query if available
+    const currentQuery = queryEditor?.value?.trim();
+    if (currentQuery) {
+      document.getElementById('savedQuerySQL').value = currentQuery;
+    }
+  }
+
+  modal.classList.remove('hidden');
+  document.getElementById('savedQueryTitle').focus();
+}
+
+function handleSaveSavedQuery(event) {
+  event.preventDefault();
+
+  const id = document.getElementById('savedQueryId').value;
+  const title = document.getElementById('savedQueryTitle').value.trim();
+  const description = document.getElementById('savedQueryDescription').value.trim();
+  const sql = document.getElementById('savedQuerySQL').value.trim();
+
+  if (!title || !sql) return;
+
+  if (id) {
+    // Update existing
+    const index = savedQueries.findIndex(q => q.id === id);
+    if (index >= 0) {
+      savedQueries[index].title = title;
+      savedQueries[index].description = description;
+      savedQueries[index].sql = sql;
+      savedQueries[index].updatedAt = new Date().toISOString();
+    }
+  } else {
+    // Create new
+    savedQueries.unshift({
+      id: 'sq_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+      title,
+      description,
+      sql,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  persistSavedQueries();
+  renderSavedQueries();
+  document.getElementById('savedQueryModal').classList.add('hidden');
+  showNotification(id ? 'Query updated' : 'Query saved', 'success');
+}
+
+function editSavedQuery(id) {
+  const query = savedQueries.find(q => q.id === id);
+  if (query) openSavedQueryModal(query);
+}
+
+function deleteSavedQuery(id) {
+  if (confirm('Are you sure you want to delete this saved query?')) {
+    savedQueries = savedQueries.filter(q => q.id !== id);
+    persistSavedQueries();
+    renderSavedQueries();
+    showNotification('Query deleted', 'success');
+  }
+}
+
+function copySavedQuery(id) {
+  const query = savedQueries.find(q => q.id === id);
+  if (!query) return;
+
+  navigator.clipboard.writeText(query.sql).then(() => {
+    // Visual feedback on button
+    const btn = document.querySelector(`[data-copy-id="${id}"]`);
+    if (btn) {
+      btn.classList.add('copied');
+      const origHTML = btn.innerHTML;
+      btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg> Copied!`;
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.innerHTML = origHTML;
+      }, 1500);
+    }
+    showNotification('Query copied to clipboard', 'success');
+  }).catch(() => {
+    showNotification('Failed to copy query', 'error');
+  });
+}
+
+function loadSavedQueryToEditor(id) {
+  const query = savedQueries.find(q => q.id === id);
+  if (!query) return;
+
+  switchMainTab('query');
+  queryEditor.value = query.sql;
+  if (typeof updateLineNumbers === 'function') updateLineNumbers();
+  if (typeof updateSyntaxHighlight === 'function') updateSyntaxHighlight();
+  showNotification('Query loaded into editor', 'success');
+}
+
+function renderSavedQueries(searchFilter = '') {
+  const list = document.getElementById('savedQueriesList');
+  if (!list) return;
+
+  let filtered = savedQueries;
+  if (searchFilter) {
+    const lower = searchFilter.toLowerCase();
+    filtered = savedQueries.filter(q =>
+      q.title.toLowerCase().includes(lower) ||
+      (q.description && q.description.toLowerCase().includes(lower)) ||
+      q.sql.toLowerCase().includes(lower)
+    );
+  }
+
+  if (filtered.length === 0) {
+    list.innerHTML = searchFilter
+      ? '<div class="no-results">No queries match your search.</div>'
+      : '<div class="no-results">No saved queries yet. Save your first query to get started!</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  filtered.forEach(q => {
+    const date = new Date(q.updatedAt || q.createdAt);
+    const dateStr = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+    const item = document.createElement('div');
+    item.className = 'saved-query-item';
+    item.innerHTML = `
+      <div class="saved-query-top">
+        <div>
+          <div class="saved-query-title">${escapeHtml(q.title)}</div>
+          <div class="saved-query-meta">Saved ${dateStr} at ${timeStr}</div>
+          ${q.description ? `<div class="saved-query-description">${escapeHtml(q.description)}</div>` : ''}
+        </div>
+        <div class="saved-query-actions">
+          <button class="btn-secondary item-actions-btn" onclick="loadSavedQueryToEditor('${q.id}')">Load</button>
+          <button class="btn-secondary item-actions-btn" onclick="editSavedQuery('${q.id}')">Edit</button>
+          <button class="btn-danger item-actions-btn" onclick="deleteSavedQuery('${q.id}')">Delete</button>
+        </div>
+      </div>
+      <div class="saved-query-sql">${escapeHtml(q.sql)}</div>
+      <div class="saved-query-sql-actions">
+        <button class="btn-copy-query" data-copy-id="${q.id}" onclick="copySavedQuery('${q.id}')">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"/>
+            <path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"/>
+          </svg>
+          Copy
+        </button>
+        <button class="btn-load-query" onclick="loadSavedQueryToEditor('${q.id}')">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M4 2l10 6-10 6V2z"/>
+          </svg>
+          Load in Editor
+        </button>
+      </div>
+    `;
+    list.appendChild(item);
+  });
 }
 
 // Show general help for saved queries
@@ -9148,15 +9358,16 @@ function initializeDBMLPanZoom() {
 
     // Global shortcuts
     if (e.ctrlKey || e.metaKey) {
-      // Tab navigation: Ctrl+1, Ctrl+2, Ctrl+3, Ctrl+4, Ctrl+5
-      if (e.key >= '1' && e.key <= '5') {
+      // Tab navigation: Ctrl+1 through Ctrl+6
+      if (e.key >= '1' && e.key <= '6') {
         e.preventDefault();
         const tabMapping = {
           '1': 'query',
           '2': 'psql', 
           '3': 'dbml',
           '4': 'snippets',
-          '5': 'variables'
+          '5': 'saved-queries',
+          '6': 'variables'
         };
         switchMainTab(tabMapping[e.key]);
         return;
