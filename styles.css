@@ -1118,6 +1118,7 @@ body.platform-linux .window-controls {
   margin-bottom: 8px;
 }
 
+
 .where-builder-title {
   font-size: 12px;
   font-weight: 600;
@@ -1150,6 +1151,17 @@ body.platform-linux .window-controls {
   gap: 8px;
   align-items: center;
   flex: 1;
+}
+
+.filter-row-content .where-input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.filter-row-content .btn-add-filter {
+  padding: 6px 8px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .filter-logic-select {
@@ -1213,6 +1225,15 @@ body.platform-linux .window-controls {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.where-sort-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.where-sort-column {
+  min-width: 160px;
 }
 
 .where-dropdown {

@@ -266,13 +266,23 @@
                 <div id="filterRowsContainer">
                   <!-- Filter rows will be dynamically added here -->
                 </div>
+                <button class="btn-secondary btn-add-filter hidden" id="addFilterBtn" title="Add another filter">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                  Add Filter
+                </button>
                 <div class="where-builder-actions">
-                  <button class="btn-secondary btn-add-filter" id="addFilterBtn" title="Add another filter">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                      <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                    Add Filter
-                  </button>
+                  <div class="where-builder-controls">
+                    <label class="where-sort-label" for="whereSortColumnSelect">Sort:</label>
+                    <select class="where-dropdown where-sort-column" id="whereSortColumnSelect">
+                      <option value="">None</option>
+                    </select>
+                    <select class="where-dropdown where-sort-order" id="whereSortOrderSelect">
+                      <option value="asc">ASC</option>
+                      <option value="desc">DESC</option>
+                    </select>
+                  </div>
                   <button class="btn-primary" id="executeWhereBtn">Filter</button>
                 </div>
               </div>

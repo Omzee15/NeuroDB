@@ -48,6 +48,7 @@ let aiPrompt, aiPanel, aiChatContainer, aiChatInput;
 let dbTree, psqlOutput, psqlInput;
 let whereClauseBuilder, selectedTableName, filterRowsContainer, addFilterBtn;
 let executeWhereBtn, closeWhereBuilder;
+let whereSortColumnSelect, whereSortOrderSelect;
 let executeQueryBtn, executeSelectedBtn, stopQueryBtn, limitSelect;
 let filterRowCounter = 0; // Counter for unique filter row IDs
 
@@ -74,6 +75,8 @@ function initializeDOMElements() {
   addFilterBtn = document.getElementById('addFilterBtn');
   executeWhereBtn = document.getElementById('executeWhereBtn');
   closeWhereBuilder = document.getElementById('closeWhereBuilder');
+  whereSortColumnSelect = document.getElementById('whereSortColumnSelect');
+  whereSortOrderSelect = document.getElementById('whereSortOrderSelect');
   executeQueryBtn = document.getElementById('executeQueryBtn');
   executeSelectedBtn = document.getElementById('executeSelectedBtn');
   stopQueryBtn = document.getElementById('stopQueryBtn');
@@ -1346,6 +1349,16 @@ function setupEventListeners() {
   executeWhereBtn.addEventListener('click', generateWhereQuery);
   closeWhereBuilder.addEventListener('click', hideWhereClauseBuilder);
   addFilterBtn.addEventListener('click', addFilterRow);
+  if (whereClauseBuilder) {
+    whereClauseBuilder.addEventListener('keydown', (e) => {
+      const isEnter = e.key === 'Enter';
+      const isInQuickFilter = whereClauseBuilder.contains(e.target);
+      if (isEnter && isInQuickFilter) {
+        e.preventDefault();
+        generateWhereQuery();
+      }
+    }, true);
+  }
   
   // Backup Database Button
   document.getElementById('backupDatabaseBtn')?.addEventListener('click', () => {
@@ -2549,6 +2562,48 @@ function showWhereClauseBuilder(tableName, columns) {
   
   // Store columns for use when creating filter rows
   selectedTableInfo.availableColumns = columns;
+
+  // Refresh sort controls and listeners to match the current table
+  if (whereSortColumnSelect) {
+    whereSortColumnSelect.replaceWith(whereSortColumnSelect.cloneNode(true));
+    whereSortColumnSelect = document.getElementById('whereSortColumnSelect');
+  }
+  if (whereSortOrderSelect) {
+    whereSortOrderSelect.replaceWith(whereSortOrderSelect.cloneNode(true));
+    whereSortOrderSelect = document.getElementById('whereSortOrderSelect');
+  }
+
+  if (whereSortColumnSelect) {
+    whereSortColumnSelect.innerHTML = '<option value="">None</option>';
+    columns.forEach(column => {
+      const option = document.createElement('option');
+      option.value = column.name;
+      option.textContent = `${column.name} (${column.type})`;
+      whereSortColumnSelect.appendChild(option);
+    });
+  }
+  if (whereSortOrderSelect) {
+    whereSortOrderSelect.value = 'asc';
+  }
+
+  const executeWhereFromSort = (e) => {
+    if (e?.key && e.key !== 'Enter') {
+      return;
+    }
+    e?.preventDefault();
+    executeWhereBtn?.click();
+  };
+
+  if (whereSortColumnSelect) {
+    whereSortColumnSelect.addEventListener('change', executeWhereFromSort);
+    whereSortColumnSelect.addEventListener('keydown', executeWhereFromSort);
+    whereSortColumnSelect.addEventListener('keyup', executeWhereFromSort);
+  }
+  if (whereSortOrderSelect) {
+    whereSortOrderSelect.addEventListener('change', executeWhereFromSort);
+    whereSortOrderSelect.addEventListener('keydown', executeWhereFromSort);
+    whereSortOrderSelect.addEventListener('keyup', executeWhereFromSort);
+  }
   
   // Clear existing filter rows
   filterRowsContainer.innerHTML = '';
@@ -2556,9 +2611,29 @@ function showWhereClauseBuilder(tableName, columns) {
   
   // Add the first filter row by default
   addFilterRow();
+  placeAddFilterInline();
   
   // Show the where clause builder
   whereClauseBuilder.classList.remove('hidden');
+}
+
+function placeAddFilterInline() {
+  if (!addFilterBtn || !filterRowsContainer) {
+    return;
+  }
+
+  const firstRow = filterRowsContainer.querySelector('.filter-row');
+  if (!firstRow) {
+    return;
+  }
+
+  const rowContent = firstRow.querySelector('.filter-row-content');
+  if (!rowContent) {
+    return;
+  }
+
+  addFilterBtn.classList.remove('hidden');
+  rowContent.appendChild(addFilterBtn);
 }
 
 // Create a new filter row element
@@ -2662,6 +2737,7 @@ function addFilterRow() {
   const isFirst = filterRowsContainer.children.length === 0;
   const filterRow = createFilterRowElement(isFirst);
   filterRowsContainer.appendChild(filterRow);
+  placeAddFilterInline();
 }
 
 // Remove a filter row by ID
@@ -2683,12 +2759,19 @@ function removeFilterRow(rowId) {
         }
       }
     }
+    placeAddFilterInline();
   }
 }
 
 function hideWhereClauseBuilder() {
   whereClauseBuilder.classList.add('hidden');
   selectedTableInfo = null;
+  if (whereSortColumnSelect) {
+    whereSortColumnSelect.innerHTML = '<option value="">None</option>';
+  }
+  if (whereSortOrderSelect) {
+    whereSortOrderSelect.value = 'asc';
+  }
 }
 
 function filterDatabaseTree(searchTerm) {
@@ -2759,6 +2842,7 @@ function generateWhereQuery() {
   // Collect all filter conditions from the filter rows
   const filterRows = filterRowsContainer.querySelectorAll('.filter-row');
   const conditions = [];
+  let hasAnyFilterInput = false;
   
   for (const row of filterRows) {
     const columnSelect = row.querySelector('.column-select');
@@ -2770,10 +2854,17 @@ function generateWhereQuery() {
     const operator = operatorSelect?.value;
     const value = valueInput?.value.trim() || '';
     const logic = logicSelect?.value || 'AND';
+
+    if (column || value) {
+      hasAnyFilterInput = true;
+    }
     
     if (!column) {
-      showNotification('Please select a column for all filters', 'error');
-      return;
+      if (hasAnyFilterInput) {
+        showNotification('Please select a column for all filters', 'error');
+        return;
+      }
+      continue;
     }
     
     // Quote column name if it contains capital letters or special characters
@@ -2813,15 +2904,18 @@ function generateWhereQuery() {
     conditions.push({ condition, logic });
   }
   
-  if (conditions.length === 0) {
+  if (conditions.length === 0 && hasAnyFilterInput) {
     showNotification('Please add at least one filter condition', 'error');
     return;
   }
   
   // Build the combined WHERE clause
-  let whereClause = conditions[0].condition;
-  for (let i = 1; i < conditions.length; i++) {
-    whereClause += `\n  ${conditions[i].logic} ${conditions[i].condition}`;
+  let whereClause = '';
+  if (conditions.length > 0) {
+    whereClause = conditions[0].condition;
+    for (let i = 1; i < conditions.length; i++) {
+      whereClause += `\n  ${conditions[i].logic} ${conditions[i].condition}`;
+    }
   }
   
   // Generate the full query with properly formatted table name
@@ -2831,8 +2925,17 @@ function generateWhereQuery() {
   const quotedSchema = quoteIdentifierIfNeeded(selectedTableInfo.schema);
   const quotedTable = quoteIdentifierIfNeeded(selectedTableInfo.name);
   const tableName = `${quotedSchema}.${quotedTable}`;
-  
-  const query = `SELECT\n  ${columnNames}\nFROM ${tableName}\nWHERE ${whereClause}${currentLimit === 'all' ? '' : `\nLIMIT ${currentLimit}`};`;
+
+  let orderByClause = '';
+  if (whereSortColumnSelect && whereSortColumnSelect.value) {
+    const sortColumn = quoteIdentifierIfNeeded(whereSortColumnSelect.value);
+    const sortOrder = whereSortOrderSelect?.value || 'asc';
+    orderByClause = `\nORDER BY ${sortColumn} ${sortOrder.toUpperCase()}`;
+  }
+
+  const limitClause = currentLimit === 'all' ? '' : `\nLIMIT ${currentLimit}`;
+  const whereClauseSql = whereClause ? `\nWHERE ${whereClause}` : '';
+  const query = `SELECT\n  ${columnNames}\nFROM ${tableName}${whereClauseSql}${orderByClause}${limitClause};`;
   
   // Set the query in the editor
   queryEditor.value = query;
