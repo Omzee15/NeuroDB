@@ -782,6 +782,64 @@
   </div>
 </div>
 
+<!-- Modal: Drop Database Confirmation -->
+<div class="modal hidden" id="dropDatabaseModal">
+  <div class="modal-content" style="max-width: 450px;">
+    <div class="modal-header">
+      <h2>Drop Database</h2>
+      <button class="btn-icon" id="closeDropDatabaseModal">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+    
+    <!-- Step 1: Initial confirmation -->
+    <div id="dropDatabaseStep1" class="connection-form">
+      <div class="drop-warning" style="background: rgba(220, 53, 69, 0.1); border: 1px solid var(--error); border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+          <svg width="24" height="24" viewBox="0 0 16 16" fill="var(--error)" style="flex-shrink: 0; margin-top: 2px;">
+            <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 12.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zM8.75 9a.75.75 0 0 1-1.5 0V5a.75.75 0 0 1 1.5 0v4z"/>
+          </svg>
+          <div>
+            <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--error);">Warning: This action is irreversible!</p>
+            <p style="margin: 0; color: var(--text-secondary); font-size: 13px;">Dropping a database will permanently delete all data, tables, and objects within it. This cannot be undone.</p>
+          </div>
+        </div>
+      </div>
+      <p style="margin-bottom: 16px;">Are you sure you want to drop the database <strong id="dropDbNamePreview" style="color: var(--error);"></strong>?</p>
+      <div class="form-actions" style="margin-top: 16px;">
+        <button type="button" class="btn-secondary" id="cancelDropDatabase1">Cancel</button>
+        <button type="button" class="btn-danger" id="proceedToDropStep2">Yes, I want to drop this database</button>
+      </div>
+    </div>
+    
+    <!-- Step 2: Type database name to confirm -->
+    <div id="dropDatabaseStep2" class="connection-form hidden">
+      <div class="drop-warning" style="background: rgba(220, 53, 69, 0.1); border: 1px solid var(--error); border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+          <svg width="24" height="24" viewBox="0 0 16 16" fill="var(--error)" style="flex-shrink: 0; margin-top: 2px;">
+            <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 12.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zM8.75 9a.75.75 0 0 1-1.5 0V5a.75.75 0 0 1 1.5 0v4z"/>
+          </svg>
+          <div>
+            <p style="margin: 0; font-weight: 600; color: var(--error);">Final confirmation required</p>
+          </div>
+        </div>
+      </div>
+      <p style="margin-bottom: 8px;">To confirm, please type the database name:</p>
+      <p style="margin-bottom: 16px; font-weight: 600; color: var(--error); font-size: 16px;" id="dropDbNameConfirm"></p>
+      <div class="form-group">
+        <input type="text" id="dropDbNameInput" class="form-input" placeholder="Type database name here" autocomplete="off">
+        <small style="color: var(--text-secondary); margin-top: 4px; display: block;">Database name is case-sensitive</small>
+      </div>
+      <div class="form-actions" style="margin-top: 16px;">
+        <button type="button" class="btn-secondary" id="cancelDropDatabase2">Cancel</button>
+        <button type="button" class="btn-danger" id="confirmDropDatabase" disabled>Drop Database</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Export Connection Details -->
 <div class="modal hidden" id="exportConnectionModal">
   <div class="modal-content" style="width: 520px;">

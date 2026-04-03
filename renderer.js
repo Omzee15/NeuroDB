@@ -1337,6 +1337,23 @@ function setupEventListeners() {
     document.getElementById('addDatabaseModal').classList.add('hidden');
   });
   
+  // Drop Database Modal
+  document.getElementById('closeDropDatabaseModal')?.addEventListener('click', closeDropDatabaseModal);
+  document.getElementById('cancelDropDatabase1')?.addEventListener('click', closeDropDatabaseModal);
+  document.getElementById('cancelDropDatabase2')?.addEventListener('click', closeDropDatabaseModal);
+  document.getElementById('proceedToDropStep2')?.addEventListener('click', proceedToDropStep2);
+  document.getElementById('dropDbNameInput')?.addEventListener('input', validateDropDbInput);
+  document.getElementById('confirmDropDatabase')?.addEventListener('click', confirmDropDatabase);
+  // Allow Enter key to confirm drop if input is valid
+  document.getElementById('dropDbNameInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const confirmBtn = document.getElementById('confirmDropDatabase');
+      if (!confirmBtn.disabled) {
+        confirmDropDatabase();
+      }
+    }
+  });
+  
   // Global click handler for hiding popovers
   document.addEventListener('click', (e) => {
     const popover = document.getElementById('cellPopover');
@@ -1959,6 +1976,9 @@ async function openAddDatabaseModal(serverId) {
       `;
       listContainer.appendChild(createNewItem);
       
+      // System databases that cannot be dropped
+      const systemDatabases = ['postgres', 'template0', 'template1'];
+      
       if (availableDbs.length === 0) {
         const noDbsMsg = document.createElement('div');
         noDbsMsg.style.cssText = 'text-align: center; padding: 20px; color: var(--text-secondary);';
@@ -1966,6 +1986,7 @@ async function openAddDatabaseModal(serverId) {
         listContainer.appendChild(noDbsMsg);
       } else {
         availableDbs.forEach(dbName => {
+          const isSystemDb = systemDatabases.includes(dbName.toLowerCase());
           const dbOption = document.createElement('div');
           dbOption.className = 'database-option';
           dbOption.innerHTML = `
@@ -1976,8 +1997,17 @@ async function openAddDatabaseModal(serverId) {
                 <path d="M2 8c0 1.1 2.7 2 6 2s6-.9 6-2" fill="none" stroke="currentColor" stroke-width="1.5"/>
               </svg>
               <span>${dbName}</span>
+              ${isSystemDb ? '<span style="font-size: 10px; color: var(--text-secondary); margin-left: 4px;">(system)</span>' : ''}
             </div>
-            <button class="btn-sm btn-primary" onclick="addDatabaseToServer('${serverId}', '${dbName}')">Add</button>
+            <div style="display: flex; gap: 6px;">
+              ${!isSystemDb ? `<button class="btn-sm btn-icon-danger" onclick="openDropDatabaseModal('${serverId}', '${dbName}')" title="Drop Database">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                  <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4L4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                </svg>
+              </button>` : ''}
+              <button class="btn-sm btn-primary" onclick="addDatabaseToServer('${serverId}', '${dbName}')">Add</button>
+            </div>
           `;
           listContainer.appendChild(dbOption);
         });
@@ -7084,6 +7114,128 @@ function hideCreateDatabaseForm() {
   }
 }
 
+// Drop Database Modal Functions
+let dropDatabaseState = {
+  serverId: null,
+  databaseName: null
+};
+
+function openDropDatabaseModal(serverId, databaseName) {
+  dropDatabaseState.serverId = serverId;
+  dropDatabaseState.databaseName = databaseName;
+  
+  const modal = document.getElementById('dropDatabaseModal');
+  const step1 = document.getElementById('dropDatabaseStep1');
+  const step2 = document.getElementById('dropDatabaseStep2');
+  const dbNamePreview = document.getElementById('dropDbNamePreview');
+  const dbNameConfirm = document.getElementById('dropDbNameConfirm');
+  const dbNameInput = document.getElementById('dropDbNameInput');
+  const confirmBtn = document.getElementById('confirmDropDatabase');
+  
+  // Reset to step 1
+  step1.classList.remove('hidden');
+  step2.classList.add('hidden');
+  
+  // Set database name display
+  dbNamePreview.textContent = databaseName;
+  dbNameConfirm.textContent = databaseName;
+  
+  // Clear and disable input
+  dbNameInput.value = '';
+  confirmBtn.disabled = true;
+  
+  // Show modal
+  modal.classList.remove('hidden');
+}
+
+function closeDropDatabaseModal() {
+  const modal = document.getElementById('dropDatabaseModal');
+  modal.classList.add('hidden');
+  dropDatabaseState.serverId = null;
+  dropDatabaseState.databaseName = null;
+}
+
+function proceedToDropStep2() {
+  const step1 = document.getElementById('dropDatabaseStep1');
+  const step2 = document.getElementById('dropDatabaseStep2');
+  const dbNameInput = document.getElementById('dropDbNameInput');
+  
+  step1.classList.add('hidden');
+  step2.classList.remove('hidden');
+  
+  // Focus on input
+  setTimeout(() => dbNameInput.focus(), 100);
+}
+
+function validateDropDbInput() {
+  const dbNameInput = document.getElementById('dropDbNameInput');
+  const confirmBtn = document.getElementById('confirmDropDatabase');
+  const inputValue = dbNameInput.value;
+  
+  // Enable confirm button only if input matches database name exactly
+  confirmBtn.disabled = inputValue !== dropDatabaseState.databaseName;
+}
+
+async function confirmDropDatabase() {
+  const dbNameInput = document.getElementById('dropDbNameInput');
+  const confirmBtn = document.getElementById('confirmDropDatabase');
+  
+  // Final validation
+  if (dbNameInput.value !== dropDatabaseState.databaseName) {
+    showNotification('Database name does not match', 'error');
+    return;
+  }
+  
+  // Disable button to prevent double-click
+  confirmBtn.disabled = true;
+  confirmBtn.textContent = 'Dropping...';
+  
+  // Get popover elements for progress indication
+  const downloadPopover = document.getElementById('downloadPopover');
+  const downloadTitle = document.getElementById('downloadTitle');
+  const downloadSubtitle = document.getElementById('downloadSubtitle');
+  
+  try {
+    // Show loading popover
+    downloadTitle.textContent = 'Dropping Database';
+    downloadSubtitle.textContent = `Dropping ${dropDatabaseState.databaseName}...`;
+    downloadPopover.classList.remove('hidden');
+    
+    const result = await window.api.dropDatabase(dropDatabaseState.serverId, dropDatabaseState.databaseName);
+    
+    // Hide loading popover
+    downloadPopover.classList.add('hidden');
+    
+    if (result.success) {
+      showNotification(`Database "${dropDatabaseState.databaseName}" has been dropped`, 'success');
+      
+      // Close the drop modal
+      closeDropDatabaseModal();
+      
+      // Refresh the add database modal if it's open
+      const addDbModal = document.getElementById('addDatabaseModal');
+      if (addDbModal && !addDbModal.classList.contains('hidden')) {
+        const serverId = addDbModal.dataset.serverId;
+        await openAddDatabaseModal(serverId);
+      }
+      
+      // Reload connections
+      await loadConnections();
+    } else {
+      showNotification(result.error || 'Failed to drop database', 'error');
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Drop Database';
+    }
+  } catch (error) {
+    // Hide loading popover
+    downloadPopover.classList.add('hidden');
+    console.error('Error dropping database:', error);
+    showNotification('Failed to drop database: ' + error.message, 'error');
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = 'Drop Database';
+  }
+}
+
 function showDatabaseListModal(content) {
   const modal = document.createElement('div');
   modal.className = 'modal';
@@ -9388,6 +9540,7 @@ window.addDatabaseToConnections = addDatabaseToConnections;
 window.showCreateDatabaseForm = showCreateDatabaseForm;
 window.hideCreateDatabaseForm = hideCreateDatabaseForm;
 window.createNewDatabase = createNewDatabase;
+window.openDropDatabaseModal = openDropDatabaseModal;
 
 // DBML Zoom and Pan Functions
 function initializeDBMLPanZoom() {

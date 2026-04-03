@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   getTablesAndViews: (connectionId) => ipcRenderer.invoke('get-tables-and-views', connectionId),
   getTables: (connectionId) => ipcRenderer.invoke('get-tables', connectionId),
   createDatabase: (serverId, databaseName) => ipcRenderer.invoke('create-database', { serverId, databaseName }),
+  dropDatabase: (serverId, databaseName) => ipcRenderer.invoke('drop-database', { serverId, databaseName }),
   getTableSchema: (connectionId, tableName) => ipcRenderer.invoke('get-table-schema', { connectionId, tableName }),
   generateDatabaseBackup: (databaseId) => ipcRenderer.invoke('generate-database-backup', databaseId),
   generateDatabaseSchema: (databaseId) => ipcRenderer.invoke('generate-database-schema', databaseId),

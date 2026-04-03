@@ -2946,6 +2946,33 @@ body.platform-linux .window-controls {
   color: var(--text-primary);
 }
 
+.btn-icon-danger {
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-icon-danger:hover {
+  background: rgba(220, 53, 69, 0.15);
+  color: #dc3545;
+  border-color: rgba(220, 53, 69, 0.3);
+}
+
+.btn-danger:disabled {
+  background: #6c757d;
+  border-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 /* Duplicate btn-danger rule removed - using the one above */
 
 /* Export Connection Preview */

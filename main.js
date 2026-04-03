@@ -203,6 +203,17 @@ ipcMain.handle('create-database', async (event, { serverId, databaseName }) => {
   }
 });
 
+// Drop Database
+ipcMain.handle('drop-database', async (event, { serverId, databaseName }) => {
+  try {
+    const result = await dbService.dropDatabase(serverId, databaseName);
+    return result;
+  } catch (error) {
+    console.error('Error dropping database:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('disconnect-db', async (event, connectionId) => {
   return dbService.disconnect(connectionId);
 });

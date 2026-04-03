@@ -191,6 +191,71 @@ class DatabaseService {
     }
   }
 
+  // Drop (delete) a database from the PostgreSQL server
+  async dropDatabase(serverId, databaseName) {
+    const server = this.servers.get(serverId);
+    if (!server) {
+      return { success: false, error: 'Server not found' };
+    }
+
+    // Prevent dropping system databases
+    const systemDatabases = ['postgres', 'template0', 'template1'];
+    if (systemDatabases.includes(databaseName.toLowerCase())) {
+      return { success: false, error: 'Cannot drop system database' };
+    }
+
+    // Connect to the default 'postgres' database to issue DROP DATABASE
+    const poolConfig = {
+      host: server.host,
+      port: server.port,
+      database: 'postgres',
+      user: server.user,
+      password: server.password
+    };
+
+    if (server.ssl || server.sslmode) {
+      poolConfig.ssl = { rejectUnauthorized: false };
+    }
+
+    const pool = new Pool(poolConfig);
+
+    try {
+      // Check if database exists
+      const existsRes = await pool.query('SELECT 1 FROM pg_database WHERE datname = $1', [databaseName]);
+      if (existsRes.rowCount === 0) {
+        await pool.end();
+        return { success: false, error: 'Database does not exist' };
+      }
+
+      // Terminate all connections to the database first
+      await pool.query(`
+        SELECT pg_terminate_backend(pg_stat_activity.pid)
+        FROM pg_stat_activity
+        WHERE pg_stat_activity.datname = $1
+          AND pid <> pg_backend_pid()
+      `, [databaseName]);
+
+      // Quote the identifier properly to avoid syntax errors
+      const quotedName = this.quoteIdentifier(databaseName);
+
+      await pool.query(`DROP DATABASE ${quotedName}`);
+      await pool.end();
+
+      // Also remove from local connections if it was added
+      for (const [dbId, db] of this.databases) {
+        if (db.serverId === serverId && db.name === databaseName) {
+          this.databases.delete(dbId);
+        }
+      }
+      this.saveConnections();
+
+      return { success: true };
+    } catch (error) {
+      try { await pool.end(); } catch (e) { /* ignore */ }
+      return { success: false, error: error.message };
+    }
+  }
+
   // Connection Management Methods (Legacy + New)
   async getConnections() {
     return {
