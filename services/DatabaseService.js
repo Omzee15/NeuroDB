@@ -1147,9 +1147,54 @@ class DatabaseService {
     }
   }
 
-  async generateDatabaseSchema(databaseId) {
+  async getAvailableSchemas(databaseId) {
+    try {
+      console.log('Getting available schemas for databaseId:', databaseId);
+      const pool = this.pools.get(databaseId);
+      if (!pool) {
+        throw new Error('Not connected to database');
+      }
+
+      // Get schemas with table and view counts
+      const schemasQuery = `
+        SELECT 
+          n.nspname as schema_name,
+          COUNT(DISTINCT CASE WHEN c.relkind = 'r' THEN c.relname END) as table_count,
+          COUNT(DISTINCT CASE WHEN c.relkind = 'v' THEN c.relname END) as view_count
+        FROM pg_catalog.pg_namespace n
+        LEFT JOIN pg_catalog.pg_class c ON n.oid = c.relnamespace 
+          AND c.relkind IN ('r', 'v')
+        WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+        AND n.nspname NOT LIKE 'pg_%'
+        GROUP BY n.nspname
+        ORDER BY n.nspname
+      `;
+      
+      const schemasResult = await pool.query(schemasQuery);
+
+      const schemas = schemasResult.rows.map(row => ({
+        name: row.schema_name,
+        tableCount: parseInt(row.table_count) || 0,
+        viewCount: parseInt(row.view_count) || 0
+      }));
+
+      return {
+        success: true,
+        schemas: schemas
+      };
+    } catch (error) {
+      console.error('Error getting available schemas:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async generateDatabaseSchema(databaseId, selectedSchemas = null) {
     try {
       console.log('Generating database schema for databaseId:', databaseId);
+      console.log('Selected schemas:', selectedSchemas);
       const pool = this.pools.get(databaseId);
       if (!pool) {
         throw new Error('Not connected to database');
@@ -1168,15 +1213,25 @@ class DatabaseService {
       schemaSQL += `-- Database: ${connection.database}\n`;
       schemaSQL += `-- Host: ${connection.host}:${connection.port}\n`;
       schemaSQL += `-- Generated: ${timestamp}\n`;
+      if (selectedSchemas && selectedSchemas.length > 0) {
+        schemaSQL += `-- Schemas: ${selectedSchemas.join(', ')}\n`;
+      }
       schemaSQL += `-- =====================================================\n\n`;
 
-      // Get all schemas
-      const schemasQuery = 'SELECT nspname as schema_name FROM pg_catalog.pg_namespace ' +
+      // Get all schemas or filtered schemas
+      let schemasQuery = 'SELECT nspname as schema_name FROM pg_catalog.pg_namespace ' +
         "WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
-        "AND nspname NOT LIKE 'pg_%' " +
-        'ORDER BY nspname';
+        "AND nspname NOT LIKE 'pg_%' ";
       
-      const schemasResult = await pool.query(schemasQuery);
+      const queryParams = [];
+      if (selectedSchemas && selectedSchemas.length > 0) {
+        schemasQuery += 'AND nspname = ANY($1) ';
+        queryParams.push(selectedSchemas);
+      }
+      
+      schemasQuery += 'ORDER BY nspname';
+      
+      const schemasResult = await pool.query(schemasQuery, queryParams);
 
       for (const schemaRow of schemasResult.rows) {
         const schemaName = schemaRow.schema_name;

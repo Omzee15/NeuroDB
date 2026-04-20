@@ -247,8 +247,12 @@ ipcMain.handle('generate-database-backup', async (event, databaseId) => {
   return dbService.generateDatabaseBackup(databaseId);
 });
 
-ipcMain.handle('generate-database-schema', async (event, databaseId) => {
-  return dbService.generateDatabaseSchema(databaseId);
+ipcMain.handle('get-available-schemas', async (event, databaseId) => {
+  return dbService.getAvailableSchemas(databaseId);
+});
+
+ipcMain.handle('generate-database-schema', async (event, { databaseId, selectedSchemas }) => {
+  return dbService.generateDatabaseSchema(databaseId, selectedSchemas);
 });
 
 ipcMain.handle('create-table', async (event, connectionId, tableData) => {

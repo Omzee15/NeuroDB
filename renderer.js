@@ -995,8 +995,7 @@ function setupEventListeners() {
   // Schema Download Button
   document.getElementById('downloadSchemaBtn')?.addEventListener('click', () => {
     if (currentConnectionId) {
-      const dbName = connections.find(c => c.id === currentConnectionId)?.name || 'database';
-      downloadDatabaseSchema(currentConnectionId, dbName);
+      openSchemaSelectionModal();
     }
   });
   document.getElementById('testConnectionBtn')?.addEventListener('click', testConnection);
@@ -1335,6 +1334,45 @@ function setupEventListeners() {
   });
   document.getElementById('cancelAddDatabaseBtn')?.addEventListener('click', () => {
     document.getElementById('addDatabaseModal').classList.add('hidden');
+  });
+  
+  // Schema Selection Modal
+  document.getElementById('closeSchemaSelectionModal')?.addEventListener('click', () => {
+    document.getElementById('schemaSelectionModal').classList.add('hidden');
+  });
+  document.getElementById('cancelSchemaSelectionBtn')?.addEventListener('click', () => {
+    document.getElementById('schemaSelectionModal').classList.add('hidden');
+  });
+  document.getElementById('selectAllSchemas')?.addEventListener('click', () => {
+    const checkboxes = document.querySelectorAll('.schema-checkbox');
+    checkboxes.forEach(cb => cb.checked = true);
+  });
+  document.getElementById('deselectAllSchemas')?.addEventListener('click', () => {
+    const checkboxes = document.querySelectorAll('.schema-checkbox');
+    checkboxes.forEach(cb => cb.checked = false);
+  });
+  document.getElementById('confirmSchemaSelectionBtn')?.addEventListener('click', async () => {
+    const checkboxes = document.querySelectorAll('.schema-checkbox:checked');
+    const selectedSchemas = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (selectedSchemas.length === 0) {
+      showNotification('Please select at least one schema', 'warning');
+      return;
+    }
+    
+    // Close modal
+    document.getElementById('schemaSelectionModal').classList.add('hidden');
+    
+    // Download with selected schemas
+    const dbName = connections.find(c => c.id === currentConnectionId)?.name || 'database';
+    await downloadDatabaseSchema(currentConnectionId, dbName, selectedSchemas);
+  });
+  
+  // Close modal when clicking outside
+  document.getElementById('schemaSelectionModal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'schemaSelectionModal') {
+      document.getElementById('schemaSelectionModal').classList.add('hidden');
+    }
   });
   
   // Drop Database Modal
@@ -5081,7 +5119,7 @@ window.downloadDatabaseBackup = downloadDatabaseBackup;
 window.downloadTableData = downloadTableData;
 window.showDownloadFormatModal = showDownloadFormatModal;
 
-async function downloadDatabaseSchema(databaseId, databaseName) {
+async function downloadDatabaseSchema(databaseId, databaseName, selectedSchemas = null) {
   const downloadPopover = document.getElementById('downloadPopover');
   const downloadTitle = document.getElementById('downloadTitle');
   const downloadSubtitle = document.getElementById('downloadSubtitle');
@@ -5092,14 +5130,20 @@ async function downloadDatabaseSchema(databaseId, databaseName) {
     downloadSubtitle.textContent = `Generating schema for ${databaseName}...`;
     downloadPopover.classList.remove('hidden');
     
-    const result = await window.api.generateDatabaseSchema(databaseId);
+    const result = await window.api.generateDatabaseSchema(databaseId, selectedSchemas);
     
     if (result.success) {
       downloadTitle.textContent = 'Saving Schema';
       downloadSubtitle.textContent = 'Choose where to save...';
       
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const defaultFilename = `${databaseName}_schema_${timestamp}.sql`;
+      let defaultFilename = `${databaseName}_schema_${timestamp}.sql`;
+      
+      // If specific schemas selected, add to filename
+      if (selectedSchemas && selectedSchemas.length > 0 && selectedSchemas.length <= 3) {
+        const schemaNames = selectedSchemas.join('_');
+        defaultFilename = `${databaseName}_${schemaNames}_${timestamp}.sql`;
+      }
       
       // Use save dialog
       const saveResult = await window.api.saveFile({
@@ -5129,6 +5173,61 @@ async function downloadDatabaseSchema(databaseId, databaseName) {
     downloadPopover.classList.add('hidden');
     console.error('Error downloading database schema:', error);
     showNotification('Error downloading schema: ' + error.message, 'error');
+  }
+}
+
+async function openSchemaSelectionModal() {
+  if (!currentConnectionId) {
+    showNotification('No connection selected', 'error');
+    return;
+  }
+
+  const modal = document.getElementById('schemaSelectionModal');
+  const schemaList = document.getElementById('schemaCheckboxList');
+  
+  // Show modal
+  modal.classList.remove('hidden');
+  
+  // Show loading state
+  schemaList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-secondary);">Loading schemas...</div>';
+  
+  try {
+    // Fetch available schemas
+    const result = await window.api.getAvailableSchemas(currentConnectionId);
+    
+    if (result.success && result.schemas.length > 0) {
+      // Build checkbox list
+      let html = '';
+      
+      result.schemas.forEach(schema => {
+        const objectCount = schema.tableCount + schema.viewCount;
+        let info = [];
+        if (schema.tableCount > 0) info.push(`${schema.tableCount} table${schema.tableCount !== 1 ? 's' : ''}`);
+        if (schema.viewCount > 0) info.push(`${schema.viewCount} view${schema.viewCount !== 1 ? 's' : ''}`);
+        const infoText = info.length > 0 ? info.join(', ') : 'No tables or views';
+        
+        html += `
+          <label class="schema-checkbox-item">
+            <input type="checkbox" class="schema-checkbox" value="${schema.name}" ${objectCount > 0 ? 'checked' : ''}>
+            <span class="schema-checkbox-label">
+              <span class="schema-name">${schema.name}</span>
+              <span class="schema-info">${infoText}</span>
+            </span>
+          </label>
+        `;
+      });
+      
+      schemaList.innerHTML = html;
+    } else if (result.success) {
+      schemaList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-secondary);">No schemas found</div>';
+    } else {
+      schemaList.innerHTML = `<div style="text-align: center; padding: 20px; color: var(--error);">Error loading schemas: ${result.error}</div>`;
+      showNotification('Failed to load schemas: ' + result.error, 'error');
+    }
+  } catch (error) {
+    console.error('Error loading schemas:', error);
+    schemaList.innerHTML = `<div style="text-align: center; padding: 20px; color: var(--error);">Error: ${error.message}</div>`;
+    showNotification('Error loading schemas: ' + error.message, 'error');
   }
 }
 
