@@ -1104,11 +1104,11 @@ class DatabaseService {
       // Get foreign keys (add at the end to avoid dependency issues)
       const fkQuery = `
         SELECT
-          n1.nspname || '.' || c1.relname as table_name,
-          con.conname as constraint_name,
-          a1.attname as column_name,
-          n2.nspname || '.' || c2.relname as foreign_table_name,
-          a2.attname as foreign_column_name
+          quote_ident(n1.nspname) || '.' || quote_ident(c1.relname) as table_name,
+          quote_ident(con.conname) as constraint_name,
+          quote_ident(a1.attname) as column_name,
+          quote_ident(n2.nspname) || '.' || quote_ident(c2.relname) as foreign_table_name,
+          quote_ident(a2.attname) as foreign_column_name
         FROM pg_catalog.pg_constraint con
         JOIN pg_catalog.pg_class c1 ON con.conrelid = c1.oid
         JOIN pg_catalog.pg_namespace n1 ON n1.oid = c1.relnamespace
@@ -1119,6 +1119,7 @@ class DatabaseService {
         WHERE con.contype = 'f'
         AND n1.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
         AND n1.nspname NOT LIKE 'pg_%'
+        AND n1.nspname NOT LIKE '\\_timescaledb%'
         ORDER BY n1.nspname, c1.relname, con.conname
       `;
 
@@ -1361,13 +1362,13 @@ class DatabaseService {
       }
 
       // Get foreign keys (add at the end to avoid dependency issues)
-      const fkQuery = `
+      let fkQueryStr = `
         SELECT
-          n1.nspname || '.' || c1.relname as table_name,
-          con.conname as constraint_name,
-          a1.attname as column_name,
-          n2.nspname || '.' || c2.relname as foreign_table_name,
-          a2.attname as foreign_column_name
+          quote_ident(n1.nspname) || '.' || quote_ident(c1.relname) as table_name,
+          quote_ident(con.conname) as constraint_name,
+          quote_ident(a1.attname) as column_name,
+          quote_ident(n2.nspname) || '.' || quote_ident(c2.relname) as foreign_table_name,
+          quote_ident(a2.attname) as foreign_column_name
         FROM pg_catalog.pg_constraint con
         JOIN pg_catalog.pg_class c1 ON con.conrelid = c1.oid
         JOIN pg_catalog.pg_namespace n1 ON n1.oid = c1.relnamespace
@@ -1378,16 +1379,77 @@ class DatabaseService {
         WHERE con.contype = 'f'
         AND n1.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
         AND n1.nspname NOT LIKE 'pg_%'
-        ORDER BY n1.nspname, c1.relname, con.conname
+        AND n1.nspname NOT LIKE '\\_timescaledb%'
       `;
 
-      const fkResult = await pool.query(fkQuery);
+      const fkParams = [];
+      if (selectedSchemas && selectedSchemas.length > 0) {
+        fkQueryStr += ` AND n1.nspname = ANY($1)`;
+        fkParams.push(selectedSchemas);
+      }
+
+      fkQueryStr += ` ORDER BY n1.nspname, c1.relname, con.conname`;
+
+      const fkResult = await pool.query(fkQueryStr, fkParams);
 
       if (fkResult.rows.length > 0) {
         schemaSQL += `\n-- Foreign Keys\n`;
         for (const fk of fkResult.rows) {
           schemaSQL += `ALTER TABLE ${fk.table_name} ADD CONSTRAINT ${fk.constraint_name} `;
           schemaSQL += `FOREIGN KEY (${fk.column_name}) REFERENCES ${fk.foreign_table_name}(${fk.foreign_column_name});\n`;
+        }
+      } else {
+        // No explicit FK constraints defined — infer relationships from naming conventions:
+        // column "foo_id" (int/bigint) → table "foo" PK "id"
+        // column "foo"    (int/bigint) → table "foo" PK "id"
+        let inferredFkQuery = `
+          SELECT DISTINCT
+            quote_ident(n.nspname) || '.' || quote_ident(t.relname) AS table_name,
+            'fk_' || t.relname || '_' || a.attname AS constraint_name,
+            quote_ident(a.attname) AS column_name,
+            quote_ident(rn.nspname) || '.' || quote_ident(rt.relname) AS foreign_table_name,
+            'id' AS foreign_column_name
+          FROM pg_catalog.pg_attribute a
+          JOIN pg_catalog.pg_class t ON t.oid = a.attrelid AND t.relkind = 'r'
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+          JOIN pg_catalog.pg_type at ON at.oid = a.atttypid
+          -- strip _id suffix or use column name as-is to find the referenced table
+          JOIN pg_catalog.pg_class rt ON rt.relkind = 'r' AND rt.oid != t.oid AND (
+            rt.relname = regexp_replace(a.attname, '_id$', '')
+            OR (a.attname NOT LIKE '%_id' AND rt.relname = a.attname)
+          )
+          JOIN pg_catalog.pg_namespace rn ON rn.oid = rt.relnamespace AND rn.nspname = n.nspname
+          -- referenced table must have an 'id' column that is its primary key
+          JOIN pg_catalog.pg_attribute ra ON ra.attrelid = rt.oid AND ra.attname = 'id'
+            AND ra.attnum > 0 AND NOT ra.attisdropped
+          JOIN pg_catalog.pg_type rat ON rat.oid = ra.atttypid
+          JOIN pg_catalog.pg_constraint pk ON pk.conrelid = rt.oid AND pk.contype = 'p'
+            AND ARRAY[ra.attnum::int] <@ pk.conkey::int[]
+          WHERE a.attnum > 0 AND NOT a.attisdropped
+          AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+          AND n.nspname NOT LIKE 'pg_%'
+          AND n.nspname NOT LIKE '\\_timescaledb%'
+          -- both columns must be integer-family types for a valid FK
+          AND at.typname IN ('int2', 'int4', 'int8')
+          AND rat.typname IN ('int2', 'int4', 'int8')
+        `;
+
+        const inferredFkParams = [];
+        if (selectedSchemas && selectedSchemas.length > 0) {
+          inferredFkQuery += ` AND n.nspname = ANY($1)`;
+          inferredFkParams.push(selectedSchemas);
+        }
+
+        inferredFkQuery += ` ORDER BY 1, 3`;
+
+        const inferredFkResult = await pool.query(inferredFkQuery, inferredFkParams);
+
+        if (inferredFkResult.rows.length > 0) {
+          schemaSQL += `\n-- Foreign Keys (inferred from column naming conventions — no explicit FK constraints were defined in the database)\n`;
+          for (const fk of inferredFkResult.rows) {
+            schemaSQL += `ALTER TABLE ${fk.table_name} ADD CONSTRAINT ${fk.constraint_name} `;
+            schemaSQL += `FOREIGN KEY (${fk.column_name}) REFERENCES ${fk.foreign_table_name}(${fk.foreign_column_name});\n`;
+          }
         }
       }
 
