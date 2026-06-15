@@ -63,6 +63,12 @@
           <span id="titleBarDbName"></span>
         </div>
         <div class="title-bar-right">
+          <button class="btn-icon" id="settingsBtn" title="Settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
           <button class="btn-icon" id="toggleAIBtn" title="Toggle AI Assistant">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path d="M12 2L2 7l10 5 10-5-10-5z"/>
@@ -122,9 +128,6 @@
         </div>
       </div>
 
-      <div class="sidebar-footer">
-        <button class="btn-secondary" id="settingsBtn">Settings</button>
-      </div>
     </div>
 
     <!-- Sidebar Resize Handle -->
@@ -1127,6 +1130,58 @@
           Save API Key
         </button>
       </div>
+
+      <!-- About & Updates -->
+      <div class="form-group" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+        <label>About &amp; Updates</label>
+        <div id="aboutInfoCard" style="margin-top: 8px; padding: 12px 14px; background: var(--bg-tertiary, #2a2a2a); border: 1px solid var(--border-color); border-radius: 6px; font-size: 13px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="color: var(--text-secondary);">Version</span>
+            <span id="aboutVersion" style="font-weight: 600;">—</span>
+          </div>
+          <div id="aboutModeRow" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="color: var(--text-secondary);">Source</span>
+            <span id="aboutMode">—</span>
+          </div>
+          <div id="aboutDateRow" style="display: flex; justify-content: space-between; align-items: center;">
+            <span id="aboutDateLabel" style="color: var(--text-secondary);">Last updated</span>
+            <span id="aboutDate">—</span>
+          </div>
+        </div>
+
+        <!-- Update available banner -->
+        <div id="updateBanner" style="display: none; margin-top: 12px; padding: 12px 14px; background: rgba(46, 160, 67, 0.12); border: 1px solid rgba(46, 160, 67, 0.5); border-radius: 6px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+            <span style="font-size: 16px;">🎉</span>
+            <strong style="font-size: 13px;">New features are ready to be used!</strong>
+          </div>
+          <div id="updateBannerDetail" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;"></div>
+          <button class="btn-primary" id="applyUpdateBtn" style="width: 100%;">Update Now</button>
+        </div>
+
+        <div id="updateUpToDate" style="display: none; margin-top: 10px; font-size: 12px; color: var(--success-color, #2ea043);">
+          ✓ You're on the latest version.
+        </div>
+
+        <button class="btn-secondary" id="checkUpdatesBtn" style="margin-top: 12px; width: 100%;">
+          Check for Updates
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Update Applied (restart prompt) -->
+<div class="modal hidden" id="updateAppliedModal">
+  <div class="modal-content" style="max-width: 440px;">
+    <div class="modal-header">
+      <h2>Update Applied</h2>
+    </div>
+    <div style="padding: 20px;">
+      <p id="updateAppliedMessage" style="font-size: 14px; line-height: 1.5; margin: 0 0 20px;">
+        The latest changes have been applied. Please reopen the application to start using the new features.
+      </p>
+      <button class="btn-primary" id="updateAppliedOkBtn" style="width: 100%;">OK</button>
     </div>
   </div>
 </div>

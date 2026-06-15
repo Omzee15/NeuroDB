@@ -55,6 +55,13 @@ contextBridge.exposeInMainWorld('api', {
   setApiKey: (apiKey) => ipcRenderer.invoke('set-api-key', apiKey),
   clearApiKey: () => ipcRenderer.invoke('clear-api-key'),
 
+  // App Version & Updates
+  getVersionInfo: () => ipcRenderer.invoke('get-version-info'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  applyGitUpdate: () => ipcRenderer.invoke('apply-git-update'),
+  openReleasePage: (url) => ipcRenderer.invoke('open-release-page', url),
+  restartApp: () => ipcRenderer.invoke('restart-app'),
+
   // Query History Management
   getQueryHistory: () => ipcRenderer.invoke('get-query-history'),
   saveQueryHistory: (history) => ipcRenderer.invoke('save-query-history', history),

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -11,12 +11,14 @@ const DatabaseService = require('./services/DatabaseService');
 const AIService = require('./services/AIService');
 const ConfigService = require('./services/ConfigService');
 const SnippetService = require('./services/SnippetService');
+const UpdateService = require('./services/UpdateService');
 
 let mainWindow;
 const dbService = new DatabaseService();
 const configService = new ConfigService();
 const aiService = new AIService(configService);
 const snippetService = new SnippetService();
+const updateService = new UpdateService(configService, __dirname);
 
 function createWindow() {
   // Get the appropriate icon based on platform
@@ -457,6 +459,53 @@ ipcMain.handle('clear-api-key', async () => {
     console.error('Error clearing API key:', error);
     return { success: false, error: error.message };
   }
+});
+
+// App Version & Update Operations
+ipcMain.handle('get-version-info', async () => {
+  try {
+    return { success: true, info: await updateService.getVersionInfo() };
+  } catch (error) {
+    console.error('Error getting version info:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    return { success: true, result: await updateService.checkForUpdates() };
+  } catch (error) {
+    console.error('Error checking for updates:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Apply update for cloned-repo (git) mode: runs `git pull`.
+ipcMain.handle('apply-git-update', async () => {
+  try {
+    return await updateService.applyGitUpdate();
+  } catch (error) {
+    console.error('Error applying git update:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Release mode: open the release download page in the default browser.
+ipcMain.handle('open-release-page', async (event, url) => {
+  try {
+    if (url) await shell.openExternal(url);
+    return { success: true };
+  } catch (error) {
+    console.error('Error opening release page:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Quit the app so the user can reopen it with the freshly pulled code.
+ipcMain.handle('restart-app', async () => {
+  app.relaunch();
+  app.exit(0);
+  return { success: true };
 });
 
 // Query History Management

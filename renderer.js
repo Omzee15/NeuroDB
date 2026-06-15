@@ -1327,7 +1327,14 @@ function setupEventListeners() {
       saveApiKey();
     }
   });
-  
+
+  // App Version & Updates
+  document.getElementById('checkUpdatesBtn')?.addEventListener('click', () => checkForUpdates(false));
+  document.getElementById('applyUpdateBtn')?.addEventListener('click', () => applyUpdate());
+  document.getElementById('updateAppliedOkBtn')?.addEventListener('click', () => {
+    window.api.restartApp();
+  });
+
   // Add Database Modal
   document.getElementById('closeAddDatabaseModal')?.addEventListener('click', () => {
     document.getElementById('addDatabaseModal').classList.add('hidden');
@@ -9446,9 +9453,12 @@ function openSettingsModal() {
   
   // Set current theme in dropdown
   document.getElementById('themeSelect').value = currentTheme;
-  
+
   // Load API key status
   loadApiKeyStatus();
+
+  // Load version info and check for updates
+  loadVersionInfo();
 }
 
 async function loadApiKeyStatus() {
@@ -9485,6 +9495,144 @@ async function loadApiKeyStatus() {
   } catch (error) {
     console.error('Error loading API key status:', error);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Version info & update flow
+// ---------------------------------------------------------------------------
+
+// Holds the latest update-check result so the Update button knows what to do.
+let pendingUpdateResult = null;
+
+function formatUpdateDate(iso) {
+  if (!iso) return 'Unknown';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'Unknown';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+async function loadVersionInfo() {
+  try {
+    const res = await window.api.getVersionInfo();
+    if (!res.success) return;
+    const info = res.info;
+
+    document.getElementById('aboutVersion').textContent = 'v' + info.version;
+
+    const modeEl = document.getElementById('aboutMode');
+    const dateLabel = document.getElementById('aboutDateLabel');
+    const dateEl = document.getElementById('aboutDate');
+
+    if (info.mode === 'git') {
+      modeEl.textContent = 'GitHub (cloned)' + (info.commitShortSha ? ` · ${info.commitShortSha}` : '');
+      dateLabel.textContent = 'Last updated';
+      dateEl.textContent = formatUpdateDate(info.lastUpdated);
+    } else {
+      modeEl.textContent = 'Release build';
+      dateLabel.textContent = 'Downloaded';
+      dateEl.textContent = formatUpdateDate(info.installDate);
+    }
+  } catch (error) {
+    console.error('Error loading version info:', error);
+  }
+
+  // Auto-check for updates each time settings opens (best-effort, silent on failure).
+  checkForUpdates(true);
+}
+
+async function checkForUpdates(silent = false) {
+  const banner = document.getElementById('updateBanner');
+  const upToDate = document.getElementById('updateUpToDate');
+  const btn = document.getElementById('checkUpdatesBtn');
+
+  banner.style.display = 'none';
+  upToDate.style.display = 'none';
+  if (!silent) {
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+  }
+
+  try {
+    const res = await window.api.checkForUpdates();
+    if (!res.success) {
+      if (!silent) showNotification(res.error || 'Could not check for updates', 'error');
+      return;
+    }
+
+    const result = res.result;
+    pendingUpdateResult = result;
+
+    if (result.error) {
+      if (!silent) showNotification('Update check failed: ' + result.error, 'error');
+      return;
+    }
+
+    if (result.updateAvailable) {
+      const detail = document.getElementById('updateBannerDetail');
+      if (result.mode === 'git') {
+        const count = result.behindBy ? `${result.behindBy} new commit${result.behindBy > 1 ? 's' : ''}` : 'New changes';
+        detail.textContent = `${count} available on main` +
+          (result.latestMessage ? ` — latest: "${result.latestMessage}"` : '') + '.';
+      } else {
+        detail.textContent = `Release ${result.latestName || ('v' + result.latestVersion)} is available ` +
+          `(you have v${result.currentVersion}).`;
+      }
+      banner.style.display = 'block';
+    } else {
+      upToDate.style.display = 'block';
+    }
+  } catch (error) {
+    console.error('Error checking for updates:', error);
+    if (!silent) showNotification('Could not check for updates', 'error');
+  } finally {
+    if (!silent) {
+      btn.disabled = false;
+      btn.textContent = 'Check for Updates';
+    }
+  }
+}
+
+async function applyUpdate() {
+  if (!pendingUpdateResult || !pendingUpdateResult.updateAvailable) return;
+  const btn = document.getElementById('applyUpdateBtn');
+
+  if (pendingUpdateResult.mode === 'git') {
+    btn.disabled = true;
+    btn.textContent = 'Pulling latest changes…';
+    try {
+      const res = await window.api.applyGitUpdate();
+      if (res.success) {
+        showUpdateAppliedModal(
+          'The latest changes have been pulled successfully. Please reopen the application to start using the new features.'
+        );
+      } else {
+        showNotification('Update failed: ' + (res.error || 'git pull error'), 'error');
+        btn.disabled = false;
+        btn.textContent = 'Update Now';
+      }
+    } catch (error) {
+      console.error('Error applying update:', error);
+      showNotification('Update failed', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Update Now';
+    }
+  } else {
+    // Release mode: open download page, then prompt to quit & reinstall.
+    try {
+      await window.api.openReleasePage(pendingUpdateResult.releaseUrl);
+      showUpdateAppliedModal(
+        'The download page has opened in your browser. Once you have installed the new version, please reopen the application to start using the new features.'
+      );
+    } catch (error) {
+      console.error('Error opening release page:', error);
+      showNotification('Could not open the release page', 'error');
+    }
+  }
+}
+
+function showUpdateAppliedModal(message) {
+  document.getElementById('updateAppliedMessage').textContent = message;
+  document.getElementById('updateAppliedModal').classList.remove('hidden');
 }
 
 async function saveApiKey() {
