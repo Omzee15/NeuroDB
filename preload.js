@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('api', {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   applyGitUpdate: () => ipcRenderer.invoke('apply-git-update'),
   openReleasePage: (url) => ipcRenderer.invoke('open-release-page', url),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
   restartApp: () => ipcRenderer.invoke('restart-app'),
 
   // Query History Management

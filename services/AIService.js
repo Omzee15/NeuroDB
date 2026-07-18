@@ -18,6 +18,29 @@ class AIService {
     return this.model !== null;
   }
 
+  // Detect Gemini quota / rate-limit errors (429, RESOURCE_EXHAUSTED, quota exceeded)
+  isQuotaError(error) {
+    const message = `${error?.message || ''} ${error?.status || ''} ${error?.code || ''}`.toLowerCase();
+    return (
+      error?.status === 429 ||
+      message.includes('429') ||
+      message.includes('resource_exhausted') ||
+      message.includes('resource has been exhausted') ||
+      message.includes('quota') ||
+      message.includes('rate limit') ||
+      message.includes('too many requests')
+    );
+  }
+
+  quotaExhaustedResult(extra = {}) {
+    return {
+      success: false,
+      errorType: 'quota_exhausted',
+      error: "The AI model is running busy right now — the free usage limit has been reached. NeuroDB's built-in AI runs on shared credits used by all users, so it can occasionally max out. For a smooth, uninterrupted experience, we recommend adding your own Gemini API key in Settings — it's completely free to create.",
+      ...extra
+    };
+  }
+
   // Helper to check if identifier needs quoting (contains uppercase or special characters)
   needsQuoting(identifier) {
     return /[A-Z]/.test(identifier) || /[^a-z0-9_]/.test(identifier);
@@ -216,6 +239,9 @@ If the request is unclear or cannot be fulfilled with the available schema, retu
       };
     } catch (error) {
       console.error('Error generating SQL:', error);
+      if (this.isQuotaError(error)) {
+        return this.quotaExhaustedResult({ query: null });
+      }
       return {
         success: false,
         error: error.message,
@@ -310,6 +336,9 @@ Use simple language. Be direct and concise.`;
       };
     } catch (error) {
       console.error('Error explaining query:', error);
+      if (this.isQuotaError(error)) {
+        return this.quotaExhaustedResult({ explanation: null });
+      }
       return {
         success: false,
         error: error.message
@@ -364,6 +393,9 @@ Be helpful, concise, and practical. When suggesting SQL, use the schema provided
       };
     } catch (error) {
       console.error('Error in chat:', error);
+      if (this.isQuotaError(error)) {
+        return this.quotaExhaustedResult();
+      }
       return {
         success: false,
         error: error.message
@@ -406,6 +438,9 @@ Provide the optimized query and explanation of changes.`;
       };
     } catch (error) {
       console.error('Error optimizing query:', error);
+      if (this.isQuotaError(error)) {
+        return this.quotaExhaustedResult();
+      }
       return {
         success: false,
         error: error.message

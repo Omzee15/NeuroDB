@@ -1007,6 +1007,26 @@ function setupEventListeners() {
   document.getElementById('stopQueryBtn')?.addEventListener('click', stopQuery);
   document.getElementById('generateSQLBtn')?.addEventListener('click', generateSQL);
   document.getElementById('explainQueryBtn')?.addEventListener('click', explainQuery);
+
+  // AI usage limit banner
+  document.getElementById('aiQuotaKeyLink')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.api.openExternal(GEMINI_API_KEY_URL);
+  });
+  document.getElementById('aiQuotaSettingsBtn')?.addEventListener('click', () => {
+    hideAIQuotaBanner();
+    openSettingsModal();
+  });
+  document.getElementById('aiQuotaCloseBtn')?.addEventListener('click', hideAIQuotaBanner);
+
+  // Gemini key links inside AI chat messages (delegated — messages are added dynamically)
+  aiChatContainer?.addEventListener('click', (e) => {
+    const link = e.target.closest('.gemini-key-link');
+    if (link) {
+      e.preventDefault();
+      window.api.openExternal(GEMINI_API_KEY_URL);
+    }
+  });
   document.getElementById('queryHistoryBtn')?.addEventListener('click', openQueryHistoryModal);
   document.getElementById('clearEditorBtn')?.addEventListener('click', () => {
     queryEditor.value = '';
@@ -5406,6 +5426,17 @@ async function generateSQL() {
       updateSyntaxHighlight();
       showNotification('SQL generated successfully', 'success');
       aiPrompt.value = '';
+    } else if (result.errorType === 'quota_exhausted') {
+      queryEditor.value = [
+        '-- ⏳ The AI model is running busy right now.',
+        "-- The free usage limit has been reached — NeuroDB's built-in AI runs on credits shared by all users.",
+        "-- For a smooth, uninterrupted experience, add your own Gemini API key in Settings — it's completely free.",
+        `-- Get your free key here: ${GEMINI_API_KEY_URL}`
+      ].join('\n');
+      updateLineNumbers();
+      updateSyntaxHighlight();
+      showAIQuotaBanner();
+      showNotification('AI usage limit reached — add your own free Gemini API key in Settings', 'error');
     } else {
       queryEditor.value = `-- Error: ${result.error}`;
       updateLineNumbers();
@@ -5418,6 +5449,20 @@ async function generateSQL() {
     updateSyntaxHighlight();
     showNotification('Error generating SQL', 'error');
   }
+}
+
+// Gemini API key page (Google AI Studio — keys are free to create)
+const GEMINI_API_KEY_URL = 'https://aistudio.google.com/app/apikey';
+
+// One-line quota message for AI chat, with a clickable link handled by delegation
+const AI_QUOTA_CHAT_MESSAGE = "⏳ The AI model is running busy right now — the free usage limit has been reached. NeuroDB's built-in AI runs on credits shared by all users, so for a smooth, uninterrupted experience we recommend adding your own Gemini API key in Settings — it's completely free. <a href=\"#\" class=\"gemini-key-link\">Get your free Gemini API key →</a>";
+
+function showAIQuotaBanner() {
+  document.getElementById('aiQuotaBanner')?.classList.remove('hidden');
+}
+
+function hideAIQuotaBanner() {
+  document.getElementById('aiQuotaBanner')?.classList.add('hidden');
 }
 
 async function explainQuery() {
@@ -5460,8 +5505,13 @@ async function explainQuery() {
         loadingMessage.remove();
       }
       
-      addAIMessage('assistant', '❌ Failed to explain query. Please try again.');
-      showNotification('Failed to explain query', 'error');
+      if (result.errorType === 'quota_exhausted') {
+        addAIMessage('assistant', AI_QUOTA_CHAT_MESSAGE);
+        showNotification('AI usage limit reached — add your own free Gemini API key in Settings', 'error');
+      } else {
+        addAIMessage('assistant', '❌ Failed to explain query. Please try again.');
+        showNotification('Failed to explain query', 'error');
+      }
     }
   } catch (error) {
     // Remove the loading message and show error
@@ -5541,6 +5591,8 @@ async function sendChatMessage() {
     
     if (result.success) {
       addAIMessage('assistant', result.response);
+    } else if (result.errorType === 'quota_exhausted') {
+      addAIMessage('assistant', AI_QUOTA_CHAT_MESSAGE);
     } else {
       addAIMessage('assistant', 'Sorry, I encountered an error: ' + result.error);
     }

@@ -5162,3 +5162,77 @@ body.platform-linux .window-controls {
   margin-top: 2px;
 }
 
+
+/* AI Usage Limit Notice Banner */
+.ai-quota-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--warning);
+  border-left-width: 3px;
+  border-radius: 4px;
+  margin: 8px 12px 0 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.ai-quota-banner.hidden {
+  display: none;
+}
+
+.ai-quota-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.ai-quota-text {
+  flex: 1;
+  line-height: 1.5;
+}
+
+.ai-quota-text strong {
+  display: block;
+  color: var(--warning);
+  margin-bottom: 2px;
+}
+
+.ai-quota-link {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--accent-hover);
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ai-quota-link:hover {
+  text-decoration: underline;
+}
+
+.ai-quota-settings-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ai-quota-close {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.ai-quota-close:hover {
+  color: var(--text-primary);
+}
+
+/* Gemini key link inside AI chat messages */
+.ai-message .gemini-key-link {
+  color: var(--accent-hover);
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ai-message .gemini-key-link:hover {
+  text-decoration: underline;
+}

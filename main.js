@@ -490,6 +490,17 @@ ipcMain.handle('apply-git-update', async () => {
   }
 });
 
+// Open any external URL in the default browser.
+ipcMain.handle('open-external', async (event, url) => {
+  try {
+    if (url) await shell.openExternal(url);
+    return { success: true };
+  } catch (error) {
+    console.error('Error opening external URL:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Release mode: open the release download page in the default browser.
 ipcMain.handle('open-release-page', async (event, url) => {
   try {
