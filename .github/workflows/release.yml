@@ -25,6 +25,18 @@ jobs:
         with:
           node-version: 20
 
+      - name: Sync package.json version to release tag
+        shell: bash
+        run: |
+          RAW_TAG="${{ github.ref_name }}"
+          VERSION="${RAW_TAG#v}"
+          VERSION="${VERSION#V}"
+          # Pad incomplete semver (e.g. "1.1" -> "1.1.0") so npm version accepts it
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          VERSION="${MAJOR:-0}.${MINOR:-0}.${PATCH:-0}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "Building as version $VERSION"
+
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
