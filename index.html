@@ -697,17 +697,20 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2 id="connectionModalTitle">Add Server</h2>
-        <button class="btn-icon" id="closeConnectionModal">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
-          </svg>
-        </button>
+        <div class="modal-header-actions">
+          <button type="button" class="btn-secondary" id="importConnectionBtn" title="Import connection from JSON">Import Connection</button>
+          <button class="btn-icon" id="closeConnectionModal">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <form id="connectionForm" class="connection-form">
         <input type="hidden" id="connectionId">
         <input type="hidden" id="connectionType" value="server">
-        
+
         <div class="form-group">
           <label for="connectionName">Server Name</label>
           <input type="text" id="connectionName" required placeholder="My PostgreSQL Server">

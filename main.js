@@ -393,7 +393,7 @@ ipcMain.handle('save-file', async (event, { content, defaultPath, filters }) => 
     }
 
     fs.writeFileSync(result.filePath, content, 'utf8');
-    
+
     return {
       success: true,
       filePath: result.filePath
@@ -404,6 +404,29 @@ ipcMain.handle('save-file', async (event, { content, defaultPath, filters }) => 
       success: false,
       error: error.message
     };
+  }
+});
+
+ipcMain.handle('import-connection-file', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import Connection',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    const content = fs.readFileSync(result.filePaths[0], 'utf8');
+    return { success: true, content };
+  } catch (error) {
+    console.error('Error importing connection:', error);
+    return { success: false, error: error.message };
   }
 });
 

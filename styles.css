@@ -3042,6 +3042,12 @@ body.platform-linux .window-controls {
   margin: 0;
 }
 
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .connection-form {
   padding: 20px;
 }

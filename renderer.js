@@ -944,6 +944,7 @@ function setupEventListeners() {
   document.getElementById('welcomeAddConnection')?.addEventListener('click', () => openConnectionModal());
   document.getElementById('closeConnectionModal')?.addEventListener('click', () => closeConnectionModal());
   document.getElementById('cancelConnectionBtn')?.addEventListener('click', () => closeConnectionModal());
+  document.getElementById('importConnectionBtn')?.addEventListener('click', () => importConnection());
 
   // Export Connection Modal
   document.getElementById('closeExportConnectionModal')?.addEventListener('click', () => closeExportConnectionModal());
@@ -1709,6 +1710,7 @@ function parseConnectionUrl(urlString) {
 
 // Connection Management
 function openConnectionModal(connection = null) {
+  importedSslConfig = null;
   // Reset URL mode
   const useUrlCheckbox = document.getElementById('useConnectionUrl');
   const urlFields = document.getElementById('urlModeFields');
@@ -1748,6 +1750,50 @@ function openConnectionModal(connection = null) {
 function closeConnectionModal() {
   connectionModal.classList.add('hidden');
   connectionForm.reset();
+}
+
+let importedSslConfig = null;
+
+async function importConnection() {
+  try {
+    const fileResult = await window.api.importConnectionFile();
+    if (!fileResult.success) {
+      if (!fileResult.canceled) {
+        showNotification('Failed to import connection: ' + fileResult.error, 'error');
+      }
+      return;
+    }
+
+    let data;
+    try {
+      data = JSON.parse(fileResult.content);
+    } catch (error) {
+      showNotification('Invalid connection file: not valid JSON', 'error');
+      return;
+    }
+
+    if (!data.host || !data.user) {
+      showNotification('Invalid connection file: missing required fields', 'error');
+      return;
+    }
+
+    // Populate the Add/Edit Connection form so the user can review before saving.
+    openConnectionModal();
+    document.getElementById('connectionModalTitle').textContent = 'Import Connection';
+    document.getElementById('connectionName').value = data.name || '';
+    document.getElementById('connectionHost').value = data.host || '';
+    document.getElementById('connectionPort').value = data.port || 5432;
+    document.getElementById('connectionUser').value = data.user || '';
+    document.getElementById('connectionPassword').value = data.password || '';
+
+    importedSslConfig = (data.ssl !== undefined || data.sslmode !== undefined)
+      ? { ssl: data.ssl, sslmode: data.sslmode }
+      : null;
+
+    showNotification('Connection imported. Review and click Save to add it.', 'success');
+  } catch (error) {
+    showNotification('Error importing connection: ' + error.message, 'error');
+  }
 }
 
 async function testConnection(e) {
@@ -1827,8 +1873,13 @@ async function saveConnection(e) {
     port = parseInt(document.getElementById('connectionPort').value);
     user = document.getElementById('connectionUser').value;
     password = document.getElementById('connectionPassword').value;
+
+    if (importedSslConfig) {
+      ssl = importedSslConfig.ssl;
+      sslmode = importedSslConfig.sslmode;
+    }
   }
-  
+
   const server = {
     id: document.getElementById('connectionId').value || undefined,
     name: document.getElementById('connectionName').value,
@@ -1837,7 +1888,7 @@ async function saveConnection(e) {
     user: user,
     password: password,
   };
-  
+
   // Add SSL configuration if present
   if (ssl !== undefined) {
     server.ssl = ssl;
@@ -1845,10 +1896,10 @@ async function saveConnection(e) {
   if (sslmode !== undefined) {
     server.sslmode = sslmode;
   }
-  
+
   try {
     const result = await window.api.saveServer(server);
-    
+
     if (result.success) {
       showNotification('Server saved successfully', 'success');
       closeConnectionModal();

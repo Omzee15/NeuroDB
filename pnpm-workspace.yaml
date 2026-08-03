@@ -1,3 +1,6 @@
-ignoredBuiltDependencies:
+allowBuilds:
+  electron: true
+  phantomjs-prebuilt: true
+onlyBuiltDependencies:
   - electron
   - phantomjs-prebuilt
