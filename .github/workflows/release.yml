@@ -110,3 +110,105 @@ jobs:
             dist/*.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+
+  update-homebrew-tap:
+    needs: release
+    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Compute version and tag
+        id: vars
+        shell: bash
+        run: |
+          RAW_TAG="${{ github.ref_name }}"
+          VERSION="${RAW_TAG#v}"
+          VERSION="${VERSION#V}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          VERSION="${MAJOR:-0}.${MINOR:-0}.${PATCH:-0}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$RAW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download macOS assets and checksum them
+        id: sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.vars.outputs.version }}"
+          TAG="${{ steps.vars.outputs.tag }}"
+          BASE="https://github.com/Omzee15/NeuroDB-releases/releases/download/${TAG}"
+          curl -sL --fail -o arm64.dmg "${BASE}/NeuroDB-${VERSION}-arm64.dmg"
+          curl -sL --fail -o intel.dmg "${BASE}/NeuroDB-${VERSION}.dmg"
+          echo "arm64=$(shasum -a 256 arm64.dmg | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "intel=$(shasum -a 256 intel.dmg | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew-neurodb tap
+        uses: actions/checkout@v4
+        with:
+          repository: Omzee15/homebrew-neurodb
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-neurodb
+
+      - name: Regenerate cask
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/neurodb.rb.tmpl <<'RUBY'
+          cask "neurodb" do
+            arch arm: "-arm64"
+
+            version "__VERSION__"
+            sha256 arm:   "__SHA_ARM__",
+                   intel: "__SHA_INTEL__"
+
+            # NOTE: release tags on Omzee15/NeuroDB-releases don't always match the
+            # app version 1:1 (e.g. tag "v1.11" ships version "1.11.0"). This file is
+            # regenerated automatically by NeuroDB's release workflow on every new
+            # release — manual edits here will be overwritten on the next release.
+            url "https://github.com/Omzee15/NeuroDB-releases/releases/download/__TAG__/NeuroDB-#{version}#{arch}.dmg",
+                verified: "github.com/Omzee15/NeuroDB-releases/"
+            name "NeuroDB"
+            desc "AI-powered PostgreSQL database management tool"
+            homepage "https://github.com/Omzee15/NeuroDB"
+
+            depends_on macos: :catalina
+
+            app "NeuroDB.app"
+
+            # NeuroDB.app is ad-hoc signed (not notarized). Homebrew's downloads
+            # aren't quarantined by Gatekeeper the way a browser download is, but
+            # this clears any quarantine bit defensively so `open -a NeuroDB` works
+            # on the first launch too.
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-cr", "#{appdir}/NeuroDB.app"],
+                             sudo: false
+            end
+
+            zap trash: [
+              "~/Library/Application Support/NeuroDB",
+              "~/Library/HTTPStorages/com.neurodb.app",
+              "~/Library/Preferences/com.neurodb.app.plist",
+              "~/Library/Saved Application State/com.neurodb.app.savedState",
+            ]
+          end
+          RUBY
+          sed -e "s/__VERSION__/${{ steps.vars.outputs.version }}/g" \
+              -e "s/__TAG__/${{ steps.vars.outputs.tag }}/g" \
+              -e "s/__SHA_ARM__/${{ steps.sha.outputs.arm64 }}/g" \
+              -e "s/__SHA_INTEL__/${{ steps.sha.outputs.intel }}/g" \
+              /tmp/neurodb.rb.tmpl > homebrew-neurodb/Casks/neurodb.rb
+
+      - name: Commit and push
+        shell: bash
+        working-directory: homebrew-neurodb
+        run: |
+          set -euo pipefail
+          git config user.name "omzee15"
+          git config user.email "robom.915@gmail.com"
+          if git diff --quiet; then
+            echo "Cask already up to date, nothing to commit."
+            exit 0
+          fi
+          git add Casks/neurodb.rb
+          git commit -m "neurodb ${{ steps.vars.outputs.version }}"
+          git push origin HEAD:main
