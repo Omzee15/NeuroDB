@@ -16,7 +16,7 @@
     "electron",
     "sql"
   ],
-  "author": "",
+  "author": "Omzee15 <robom.915@gmail.com>",
   "license": "AGPL-3.0-or-later",
   "devDependencies": {
     "concurrently": "^8.2.2",
