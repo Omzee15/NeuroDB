@@ -435,8 +435,7 @@ ipcMain.handle('get-api-key-status', async () => {
   return {
     hasApiKey: configService.hasApiKey(),
     hasUserApiKey: configService.hasUserApiKey(),
-    isAiAvailable: aiService.isAvailable(),
-    usingDefaultKey: !configService.hasUserApiKey()
+    isAiAvailable: aiService.isAvailable()
   };
 });
 

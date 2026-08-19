@@ -9586,13 +9586,9 @@ async function loadApiKeyStatus() {
         statusElement.textContent = '✓ Using your custom API key';
         statusElement.style.color = 'var(--success-color)';
       }
-    } else if (status.usingDefaultKey) {
-      storedKeySection.style.display = 'none';
-      statusElement.textContent = '✓ Using default API key (you can optionally set your own)';
-      statusElement.style.color = 'var(--info-color, #4a9eff)';
     } else {
       storedKeySection.style.display = 'none';
-      statusElement.textContent = '⚠ No API key configured';
+      statusElement.textContent = '⚠ No API key configured — add your Google Gemini API key to use the AI assistant';
       statusElement.style.color = 'var(--warning-color)';
     }
   } catch (error) {

@@ -3,15 +3,17 @@ const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/mess
 
 class AIService {
   constructor(configService = null) {
-    // Get API key with fallback to default embedded key
-    const apiKey = configService ? configService.getApiKey() : (process.env.GOOGLE_API_KEY || 'AIzaSyAcdDKzXkeVg7RgCDRbCDOdp3Vgg2OXo6M');
-    
-    this.model = new ChatGoogleGenerativeAI({
-      modelName: 'gemini-2.5-flash',
-      apiKey: apiKey,
-      temperature: 0.3,
-      maxOutputTokens: 8192, // Increased from 2048 to 8192 to prevent incomplete SQL queries
-    });
+    const apiKey = configService ? configService.getApiKey() : (process.env.GOOGLE_API_KEY || null);
+    this.hasKey = !!apiKey;
+
+    this.model = this.hasKey
+      ? new ChatGoogleGenerativeAI({
+          modelName: 'gemini-2.5-flash',
+          apiKey: apiKey,
+          temperature: 0.3,
+          maxOutputTokens: 8192, // Increased from 2048 to 8192 to prevent incomplete SQL queries
+        })
+      : null;
   }
 
   isAvailable() {
@@ -347,6 +349,14 @@ Use simple language. Be direct and concise.`;
   }
 
   async chat(message, context, history = []) {
+    if (!this.isAvailable()) {
+      return {
+        success: false,
+        error: 'AI service is not available. Please configure your Google API key in Settings.',
+        response: null
+      };
+    }
+
     try {
       const schemaText = context.schema ? this.formatSchemaForPrompt(context.schema) : '';
 
@@ -404,6 +414,14 @@ Be helpful, concise, and practical. When suggesting SQL, use the schema provided
   }
 
   async optimizeQuery(query, schema) {
+    if (!this.isAvailable()) {
+      return {
+        success: false,
+        error: 'AI service is not available. Please configure your Google API key in Settings.',
+        optimization: null
+      };
+    }
+
     try {
       const schemaText = this.formatSchemaForPrompt(schema);
 

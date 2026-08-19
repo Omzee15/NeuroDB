@@ -5,8 +5,6 @@ class ConfigService {
   constructor() {
     this.configPath = path.join(__dirname, '../user-config.json');
     this.config = this.loadConfig();
-    // Default fallback API key embedded in the app
-    this.defaultApiKey = 'AIzaSyAcdDKzXkeVg7RgCDRbCDOdp3Vgg2OXo6M';
   }
 
   loadConfig() {
@@ -57,8 +55,8 @@ class ConfigService {
   }
 
   getApiKey() {
-    // Priority: user-configured key > environment variable > default embedded key
-    return this.config.googleApiKey || process.env.GOOGLE_API_KEY || this.defaultApiKey;
+    // Priority: user-configured key > environment variable
+    return this.config.googleApiKey || process.env.GOOGLE_API_KEY || null;
   }
 
   setApiKey(apiKey) {
@@ -66,8 +64,7 @@ class ConfigService {
   }
 
   hasApiKey() {
-    // Always returns true since we have a default fallback
-    return true;
+    return this.hasUserApiKey();
   }
   
   hasUserApiKey() {

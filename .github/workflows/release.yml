@@ -77,7 +77,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-build
-          path: dist/*.AppImage
+          path: |
+            dist/*.AppImage
+            dist/*.deb
 
       - name: Upload release assets to public releases repository
         uses: softprops/action-gh-release@v1
@@ -100,7 +102,8 @@ jobs:
             
             ### Linux
             - `NeuroDB-*.AppImage`
-            
+            - `NeuroDB-*.deb` (Debian/Ubuntu)
+
             ---
             [View Source Code](https://github.com/Omzee15/NeuroDB)
           files: |
@@ -108,6 +111,7 @@ jobs:
             dist/*.zip
             dist/*.exe
             dist/*.AppImage
+            dist/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
 
