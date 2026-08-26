@@ -946,9 +946,10 @@ class DatabaseService {
     }
   }
 
-  async generateDatabaseBackup(databaseId) {
+  async generateDatabaseBackup(databaseId, selectedSchemas = null) {
     try {
       console.log('Generating database backup for databaseId:', databaseId);
+      console.log('Selected schemas:', selectedSchemas);
       const pool = this.pools.get(databaseId);
       if (!pool) {
         throw new Error('Not connected to database');
@@ -961,21 +962,31 @@ class DatabaseService {
 
       let backupSQL = '';
       const timestamp = new Date().toISOString();
-      
+
       // Add header
       backupSQL += `-- NeuroDB Database Backup\n`;
       backupSQL += `-- Database: ${connection.database}\n`;
       backupSQL += `-- Host: ${connection.host}:${connection.port}\n`;
       backupSQL += `-- Generated: ${timestamp}\n`;
+      if (selectedSchemas && selectedSchemas.length > 0) {
+        backupSQL += `-- Schemas: ${selectedSchemas.join(', ')}\n`;
+      }
       backupSQL += `-- =====================================================\n\n`;
 
-      // Get all schemas
-      const schemasQuery = 'SELECT nspname as schema_name FROM pg_catalog.pg_namespace ' +
+      // Get all schemas or filtered schemas
+      let schemasQuery = 'SELECT nspname as schema_name FROM pg_catalog.pg_namespace ' +
         "WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
-        "AND nspname NOT LIKE 'pg_%' " +
-        'ORDER BY nspname';
-      
-      const schemasResult = await pool.query(schemasQuery);
+        "AND nspname NOT LIKE 'pg_%' ";
+
+      const schemasQueryParams = [];
+      if (selectedSchemas && selectedSchemas.length > 0) {
+        schemasQuery += 'AND nspname = ANY($1) ';
+        schemasQueryParams.push(selectedSchemas);
+      }
+
+      schemasQuery += 'ORDER BY nspname';
+
+      const schemasResult = await pool.query(schemasQuery, schemasQueryParams);
 
       for (const schemaRow of schemasResult.rows) {
         const schemaName = schemaRow.schema_name;
@@ -1102,7 +1113,7 @@ class DatabaseService {
       }
 
       // Get foreign keys (add at the end to avoid dependency issues)
-      const fkQuery = `
+      let fkQuery = `
         SELECT
           quote_ident(n1.nspname) || '.' || quote_ident(c1.relname) as table_name,
           quote_ident(con.conname) as constraint_name,
@@ -1120,10 +1131,17 @@ class DatabaseService {
         AND n1.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
         AND n1.nspname NOT LIKE 'pg_%'
         AND n1.nspname NOT LIKE '\\_timescaledb%'
-        ORDER BY n1.nspname, c1.relname, con.conname
       `;
 
-      const fkResult = await pool.query(fkQuery);
+      const fkQueryParams = [];
+      if (selectedSchemas && selectedSchemas.length > 0) {
+        fkQuery += ' AND n1.nspname = ANY($1)';
+        fkQueryParams.push(selectedSchemas);
+      }
+
+      fkQuery += ' ORDER BY n1.nspname, c1.relname, con.conname';
+
+      const fkResult = await pool.query(fkQuery, fkQueryParams);
 
       if (fkResult.rows.length > 0) {
         backupSQL += `\n-- Foreign Keys\n`;

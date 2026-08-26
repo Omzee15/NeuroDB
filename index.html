@@ -1420,11 +1420,11 @@
   </div>
 </div>
 
-<!-- Modal: Schema Selection for Download -->
+<!-- Modal: Schema Selection for Download (reused for both Schema and Backup downloads) -->
 <div class="modal hidden" id="schemaSelectionModal">
   <div class="modal-content" style="max-width: 500px;">
     <div class="modal-header">
-      <h2>Select Schemas to Download</h2>
+      <h2 id="schemaSelectionModalTitle">Select Schemas to Download</h2>
       <button class="btn-icon" id="closeSchemaSelectionModal">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" stroke-width="2"/>
@@ -1434,7 +1434,7 @@
 
     <div class="connection-form">
       <div class="form-group">
-        <label>Choose which schemas to include in the export:</label>
+        <label id="schemaSelectionModalLabel">Choose which schemas to include in the export:</label>
         <div id="schemaCheckboxList" style="max-height: 350px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 4px; padding: 12px; margin-top: 8px;">
           <div style="text-align: center; padding: 20px; color: var(--text-secondary);">Loading schemas...</div>
         </div>
@@ -1443,7 +1443,7 @@
           <button type="button" class="btn-text" id="deselectAllSchemas" style="font-size: 13px;">Deselect All</button>
         </div>
       </div>
-      
+
       <div class="form-actions" style="margin-top: 16px;">
         <button type="button" class="btn-secondary" id="cancelSchemaSelectionBtn">Cancel</button>
         <button type="button" class="btn-primary" id="confirmSchemaSelectionBtn">Download Schema</button>

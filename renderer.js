@@ -356,7 +356,7 @@ function renderConnections() {
                 <line x1="13" y1="8" x2="3" y2="8"></line>
               </svg>
             </button>
-            <button class="btn-icon" onclick="event.stopPropagation(); downloadDatabaseBackup('${db.id}', '${db.name}')" title="Download Database Backup">
+            <button class="btn-icon" onclick="event.stopPropagation(); openSchemaSelectionModal('backup', '${db.id}', '${db.name}')" title="Download Database Backup">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 15h10"></path>
                 <path d="M8 3v9"></path>
@@ -988,8 +988,7 @@ function setupEventListeners() {
   // Backup Button
   document.getElementById('backupDatabaseBtn')?.addEventListener('click', () => {
     if (currentConnectionId) {
-      const dbName = connections.find(c => c.id === currentConnectionId)?.name || 'database';
-      downloadDatabaseBackup(currentConnectionId, dbName);
+      openSchemaSelectionModal('backup');
     }
   });
 
@@ -1390,10 +1389,15 @@ function setupEventListeners() {
     
     // Close modal
     document.getElementById('schemaSelectionModal').classList.add('hidden');
-    
+
     // Download with selected schemas
-    const dbName = connections.find(c => c.id === currentConnectionId)?.name || 'database';
-    await downloadDatabaseSchema(currentConnectionId, dbName, selectedSchemas);
+    const dbId = schemaSelectionDatabaseId || currentConnectionId;
+    const dbName = schemaSelectionDatabaseName || connections.find(c => c.id === dbId)?.name || 'database';
+    if (schemaSelectionMode === 'backup') {
+      await downloadDatabaseBackup(dbId, dbName, selectedSchemas);
+    } else {
+      await downloadDatabaseSchema(dbId, dbName, selectedSchemas);
+    }
   });
   
   // Close modal when clicking outside
@@ -1446,16 +1450,7 @@ function setupEventListeners() {
   // Backup Database Button
   document.getElementById('backupDatabaseBtn')?.addEventListener('click', () => {
     if (currentConnectionId) {
-      // Find the database name
-      let databaseName = '';
-      for (const server of connections) {
-        const db = server.databases?.find(d => d.id === currentConnectionId);
-        if (db) {
-          databaseName = db.name;
-          break;
-        }
-      }
-      downloadDatabaseBackup(currentConnectionId, databaseName);
+      openSchemaSelectionModal('backup');
     }
   });
   
@@ -5026,26 +5021,32 @@ function convertToSQL(data, tableName) {
 window.exportResults = exportResults;
 
 // Database and Table Backup/Download Functions
-async function downloadDatabaseBackup(databaseId, databaseName) {
+async function downloadDatabaseBackup(databaseId, databaseName, selectedSchemas = null) {
   const downloadPopover = document.getElementById('downloadPopover');
   const downloadTitle = document.getElementById('downloadTitle');
   const downloadSubtitle = document.getElementById('downloadSubtitle');
-  
+
   try {
     // Show loading popover
     downloadTitle.textContent = 'Downloading Database Backup';
     downloadSubtitle.textContent = `Generating backup for ${databaseName}...`;
     downloadPopover.classList.remove('hidden');
-    
-    const result = await window.api.generateDatabaseBackup(databaseId);
-    
+
+    const result = await window.api.generateDatabaseBackup(databaseId, selectedSchemas);
+
     if (result.success) {
       downloadTitle.textContent = 'Saving Backup';
       downloadSubtitle.textContent = 'Choose where to save...';
-      
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const defaultFilename = `${databaseName}_backup_${timestamp}.sql`;
-      
+      let defaultFilename = `${databaseName}_backup_${timestamp}.sql`;
+
+      // If specific schemas selected, add to filename
+      if (selectedSchemas && selectedSchemas.length > 0 && selectedSchemas.length <= 3) {
+        const schemaNames = selectedSchemas.join('_');
+        defaultFilename = `${databaseName}_${schemaNames}_backup_${timestamp}.sql`;
+      }
+
       // Use save dialog
       const saveResult = await window.api.saveFile({
         content: result.backup,
@@ -5254,15 +5255,36 @@ async function downloadDatabaseSchema(databaseId, databaseName, selectedSchemas 
   }
 }
 
-async function openSchemaSelectionModal() {
-  if (!currentConnectionId) {
+let schemaSelectionMode = 'schema'; // 'schema' | 'backup'
+let schemaSelectionDatabaseId = null;
+let schemaSelectionDatabaseName = null;
+
+async function openSchemaSelectionModal(mode = 'schema', databaseId = null, databaseName = null) {
+  schemaSelectionDatabaseId = databaseId || currentConnectionId;
+  if (!schemaSelectionDatabaseId) {
     showNotification('No connection selected', 'error');
     return;
   }
+  schemaSelectionDatabaseName = databaseName || connections.find(c => c.id === schemaSelectionDatabaseId)?.name || 'database';
+
+  schemaSelectionMode = mode;
 
   const modal = document.getElementById('schemaSelectionModal');
   const schemaList = document.getElementById('schemaCheckboxList');
-  
+  const modalTitle = document.getElementById('schemaSelectionModalTitle');
+  const modalLabel = document.getElementById('schemaSelectionModalLabel');
+  const confirmBtn = document.getElementById('confirmSchemaSelectionBtn');
+
+  if (mode === 'backup') {
+    modalTitle.textContent = 'Select Schemas to Backup';
+    modalLabel.textContent = 'Choose which schemas to include in the backup:';
+    confirmBtn.textContent = 'Download Backup';
+  } else {
+    modalTitle.textContent = 'Select Schemas to Download';
+    modalLabel.textContent = 'Choose which schemas to include in the export:';
+    confirmBtn.textContent = 'Download Schema';
+  }
+
   // Show modal
   modal.classList.remove('hidden');
   
@@ -5271,8 +5293,8 @@ async function openSchemaSelectionModal() {
   
   try {
     // Fetch available schemas
-    const result = await window.api.getAvailableSchemas(currentConnectionId);
-    
+    const result = await window.api.getAvailableSchemas(schemaSelectionDatabaseId);
+
     if (result.success && result.schemas.length > 0) {
       // Build checkbox list
       let html = '';
@@ -5310,6 +5332,7 @@ async function openSchemaSelectionModal() {
 }
 
 window.downloadDatabaseSchema = downloadDatabaseSchema;
+window.openSchemaSelectionModal = openSchemaSelectionModal;
 
 // AI Operations
 
