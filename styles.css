@@ -1925,10 +1925,9 @@ body.platform-linux .window-controls {
   flex-direction: column;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
-  min-height: 200px;
+  min-height: 0; /* Allow the flex child to shrink so the table can scroll to the last row */
   flex: 1; /* Take remaining space */
-  overflow: visible; /* Allow child containers to handle their own scrolling */
-  max-height: 100%; /* Ensure proper height constraints */
+  overflow: hidden; /* Child table container handles its own scrolling */
 }
 
 .results-header {
@@ -2252,13 +2251,12 @@ body.platform-linux .window-controls {
 }
 
 .results-table-container {
-  flex: 1;
+  flex: 1 1 0;
   overflow: auto;
   padding: 0;
   box-sizing: border-box;
-  min-height: 0; /* Ensure flexbox allows shrinking */
+  min-height: 0; /* Ensure flexbox allows shrinking so the last row stays reachable */
   display: block;
-  height: 100%; /* Ensure full height usage */
   position: relative;
 }
 

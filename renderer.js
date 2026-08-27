@@ -1513,35 +1513,34 @@ function setupResultsResize() {
   // Mouse move for resizing
   const handleMouseMove = (e) => {
     if (!isResizing) return;
-    
+
     const deltaY = e.clientY - startY;
-    const minHeight = 150;
-    const maxHeight = window.innerHeight - 300; // Leave space for other UI elements
-    
+    const MIN_EDITOR_HEIGHT = 150;
+    const MIN_RESULTS_HEIGHT = 150;
+    // Cap the editor so the results container keeps at least MIN_RESULTS_HEIGHT.
+    // Only the editor gets a fixed height; results flex into the rest.
+    const combined = startEditorHeight + startResultsHeight;
+    const maxEditorHeight = Math.max(MIN_EDITOR_HEIGHT, combined - MIN_RESULTS_HEIGHT);
+
     let newEditorHeight = startEditorHeight + deltaY;
-    let newResultsHeight = startResultsHeight - deltaY;
-    
-    // Apply constraints
-    newEditorHeight = Math.max(minHeight, Math.min(newEditorHeight, maxHeight));
-    newResultsHeight = Math.max(minHeight, Math.min(newResultsHeight, maxHeight));
-    
-    // Apply the new heights
+    newEditorHeight = Math.max(MIN_EDITOR_HEIGHT, Math.min(newEditorHeight, maxEditorHeight));
+
     editorContainer.style.height = newEditorHeight + 'px';
-    resultsContainer.style.height = newResultsHeight + 'px';
-    
+    resultsContainer.style.height = ''; // Keep results flexing so its last row stays reachable
+
     e.preventDefault();
   };
-  
+
   // Mouse up handler (defined here for closure access)
   const handleMouseUp = () => {
     if (isResizing) {
       isResizing = false;
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
-      
-      // Save heights to localStorage
+
+      // Persist only the editor height; results is always derived by flex.
       localStorage.setItem('neurodb_editor_height', editorContainer.offsetHeight);
-      localStorage.setItem('neurodb_results_height', resultsContainer.offsetHeight);
+      localStorage.removeItem('neurodb_results_height');
       
       // Update scroll spacing after resize completes
       setTimeout(() => {
@@ -1631,22 +1630,32 @@ function updateContainerHeights() {
   
   if (!editorContainer || !resultsContainer || !querySection) return;
   
-  // Check if user has manually resized (saved heights exist)
-  const savedEditorHeight = localStorage.getItem('neurodb_editor_height');
-  const savedResultsHeight = localStorage.getItem('neurodb_results_height');
-  
-  if (savedEditorHeight && savedResultsHeight) {
-    // Use saved heights from manual resize
-    editorContainer.style.height = savedEditorHeight + 'px';
-    resultsContainer.style.height = savedResultsHeight + 'px';
+  // Only the editor gets a fixed height; the results container always flexes to
+  // fill whatever space is left, so its last row is always reachable via scroll.
+  resultsContainer.style.height = '';
+
+  // Account for the sibling UI in .query-section (AI prompt bar, tabs, resize
+  // handle, etc.) plus a minimum results height so the editor can never grow
+  // large enough to push the results table off-screen.
+  const MIN_RESULTS_HEIGHT = 150;
+  const NON_EDITOR_CHROME = 100;
+  const maxEditorHeight = Math.max(
+    200,
+    querySection.offsetHeight - NON_EDITOR_CHROME - MIN_RESULTS_HEIGHT
+  );
+
+  // Preferred editor height: a previously saved manual resize, otherwise 50%.
+  const savedEditorHeight = parseInt(localStorage.getItem('neurodb_editor_height'), 10);
+  let editorHeight;
+  if (!isNaN(savedEditorHeight) && savedEditorHeight > 0) {
+    editorHeight = savedEditorHeight;
   } else {
-    // Default behavior: let results container flex to take remaining space
-    const availableHeight = querySection.offsetHeight - 100; // Account for other UI elements
-    const editorHeight = Math.max(200, Math.floor(availableHeight * 0.5)); // 50% for editor
-    
-    editorContainer.style.height = editorHeight + 'px';
-    resultsContainer.style.height = ''; // Remove fixed height to allow flex
+    const availableHeight = querySection.offsetHeight - NON_EDITOR_CHROME;
+    editorHeight = Math.floor(availableHeight * 0.5);
   }
+
+  editorHeight = Math.max(200, Math.min(editorHeight, maxEditorHeight));
+  editorContainer.style.height = editorHeight + 'px';
   
   // Update scroll spacing for results table after height changes
   setTimeout(() => {
@@ -6026,11 +6035,13 @@ function switchMainTab(tabName) {
     tab.classList.toggle('active', tab.dataset.tab === tabName);
   });
   
-  // Show/hide content sections
+  // Show/hide content sections. The active panel must be a flex column (not
+  // block) so the results container can flex to fill the remaining height and
+  // scroll its table internally.
   document.querySelectorAll('.main-tab-content').forEach(content => {
     const isActive = content.dataset.mainContent === tabName;
     content.classList.toggle('active', isActive);
-    content.style.display = isActive ? 'block' : 'none';
+    content.style.display = isActive ? 'flex' : 'none';
   });
   
   // Load tab-specific data
