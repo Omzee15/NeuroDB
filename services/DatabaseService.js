@@ -946,6 +946,49 @@ class DatabaseService {
     }
   }
 
+  // Format a single JS value (as returned by node-postgres) into a SQL literal.
+  // Handles NULL, numbers, booleans, Buffers (bytea), Dates, arrays and
+  // objects (json/jsonb) plus generic strings with proper quote escaping.
+  formatSQLValue(val, dataType) {
+    if (val === null || val === undefined) return 'NULL';
+
+    if (Buffer.isBuffer(val)) {
+      return `'\\x${val.toString('hex')}'::bytea`;
+    }
+
+    if (val instanceof Date) {
+      return `'${val.toISOString()}'`;
+    }
+
+    if (typeof val === 'boolean') {
+      return val ? 'TRUE' : 'FALSE';
+    }
+
+    if (typeof val === 'number') {
+      return Number.isFinite(val) ? String(val) : `'${val}'`;
+    }
+
+    if (typeof val === 'bigint') {
+      return val.toString();
+    }
+
+    if (Array.isArray(val)) {
+      // node-postgres returns SQL arrays as JS arrays. Rebuild an ARRAY[...] literal.
+      const inner = val.map(v => this.formatSQLValue(v, dataType)).join(', ');
+      return `ARRAY[${inner}]`;
+    }
+
+    if (typeof val === 'object') {
+      // json / jsonb / composite / range types come back as objects.
+      const json = JSON.stringify(val).replace(/'/g, "''");
+      return `'${json}'`;
+    }
+
+    // Fallback: treat as string.
+    const str = String(val).replace(/'/g, "''");
+    return `'${str}'`;
+  }
+
   async generateDatabaseBackup(databaseId, selectedSchemas = null) {
     try {
       console.log('Generating database backup for databaseId:', databaseId);
@@ -973,6 +1016,18 @@ class DatabaseService {
       }
       backupSQL += `-- =====================================================\n\n`;
 
+      // Helper: run a query, but tolerate failures (older PG versions, missing
+      // catalogs, permission issues) by logging a warning and returning empty rows.
+      const safeQuery = async (label, sql, params = []) => {
+        try {
+          return await pool.query(sql, params);
+        } catch (err) {
+          console.warn(`Backup: skipping ${label} (${err.message})`);
+          backupSQL += `-- NOTE: could not export ${label}: ${err.message}\n`;
+          return { rows: [] };
+        }
+      };
+
       // Get all schemas or filtered schemas
       let schemasQuery = 'SELECT nspname as schema_name FROM pg_catalog.pg_namespace ' +
         "WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') " +
@@ -987,146 +1042,559 @@ class DatabaseService {
       schemasQuery += 'ORDER BY nspname';
 
       const schemasResult = await pool.query(schemasQuery, schemasQueryParams);
+      const schemaNames = schemasResult.rows.map(r => r.schema_name);
 
+      // ============================================================
+      // 1. Extensions (CREATE EXTENSION IF NOT EXISTS ...)
+      // ============================================================
+      const extResult = await safeQuery('extensions', `
+        SELECT e.extname AS name, n.nspname AS schema
+        FROM pg_catalog.pg_extension e
+        JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
+        WHERE e.extname <> 'plpgsql'
+        ORDER BY e.extname
+      `);
+      if (extResult.rows.length > 0) {
+        backupSQL += `-- ============================================\n`;
+        backupSQL += `-- Extensions\n`;
+        backupSQL += `-- ============================================\n`;
+        for (const ext of extResult.rows) {
+          backupSQL += `CREATE EXTENSION IF NOT EXISTS ${this.quoteIdentifier(ext.name)}`;
+          if (ext.schema && ext.schema !== 'public') {
+            backupSQL += ` WITH SCHEMA ${this.quoteIdentifier(ext.schema)}`;
+          }
+          backupSQL += `;\n`;
+        }
+        backupSQL += `\n`;
+      }
+
+      // ============================================================
+      // 2. Schemas
+      // ============================================================
+      for (const schemaName of schemaNames) {
+        if (schemaName !== 'public') {
+          backupSQL += `CREATE SCHEMA IF NOT EXISTS ${this.quoteIdentifier(schemaName)};\n`;
+        }
+      }
+      backupSQL += `\n`;
+
+      // ============================================================
+      // 3. User-defined types (enum / composite / domain)
+      // ============================================================
+      for (const schemaName of schemaNames) {
+        const quotedSchema = this.quoteIdentifier(schemaName);
+
+        // Enums
+        const enumResult = await safeQuery(`enums in ${schemaName}`, `
+          SELECT t.typname AS name,
+                 array_agg(e.enumlabel::text ORDER BY e.enumsortorder)::text[] AS labels
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid
+          WHERE n.nspname = $1
+          GROUP BY t.typname
+          ORDER BY t.typname
+        `, [schemaName]);
+        for (const en of enumResult.rows) {
+          const labels = en.labels.map(l => `'${String(l).replace(/'/g, "''")}'`).join(', ');
+          backupSQL += `DROP TYPE IF EXISTS ${quotedSchema}.${this.quoteIdentifier(en.name)} CASCADE;\n`;
+          backupSQL += `CREATE TYPE ${quotedSchema}.${this.quoteIdentifier(en.name)} AS ENUM (${labels});\n`;
+        }
+
+        // Composite types (not table row types)
+        const compResult = await safeQuery(`composite types in ${schemaName}`, `
+          SELECT t.typname AS name,
+                 string_agg(
+                   quote_ident(a.attname) || ' ' || format_type(a.atttypid, a.atttypmod),
+                   ', ' ORDER BY a.attnum
+                 ) AS attrs
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
+          JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+          WHERE n.nspname = $1 AND c.relkind = 'c'
+          GROUP BY t.typname
+          ORDER BY t.typname
+        `, [schemaName]);
+        for (const comp of compResult.rows) {
+          backupSQL += `DROP TYPE IF EXISTS ${quotedSchema}.${this.quoteIdentifier(comp.name)} CASCADE;\n`;
+          backupSQL += `CREATE TYPE ${quotedSchema}.${this.quoteIdentifier(comp.name)} AS (${comp.attrs});\n`;
+        }
+
+        // Domains
+        const domainResult = await safeQuery(`domains in ${schemaName}`, `
+          SELECT t.typname AS name,
+                 format_type(t.typbasetype, t.typtypmod) AS base_type,
+                 t.typnotnull AS not_null,
+                 pg_get_expr(t.typdefaultbin, 0) AS default_expr,
+                 (SELECT string_agg('CONSTRAINT ' || quote_ident(con.conname) || ' ' || pg_get_constraintdef(con.oid), ' ')
+                    FROM pg_catalog.pg_constraint con WHERE con.contypid = t.oid) AS constraints
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          WHERE n.nspname = $1 AND t.typtype = 'd'
+          ORDER BY t.typname
+        `, [schemaName]);
+        for (const dom of domainResult.rows) {
+          backupSQL += `DROP DOMAIN IF EXISTS ${quotedSchema}.${this.quoteIdentifier(dom.name)} CASCADE;\n`;
+          let d = `CREATE DOMAIN ${quotedSchema}.${this.quoteIdentifier(dom.name)} AS ${dom.base_type}`;
+          if (dom.default_expr) d += ` DEFAULT ${dom.default_expr}`;
+          if (dom.not_null) d += ` NOT NULL`;
+          if (dom.constraints) d += ` ${dom.constraints}`;
+          backupSQL += d + `;\n`;
+        }
+        if (enumResult.rows.length || compResult.rows.length || domainResult.rows.length) {
+          backupSQL += `\n`;
+        }
+      }
+
+      // Track table dependency graph for topological ordering of data inserts.
+      const tableDeps = new Map(); // "schema.table" -> Set of "schema.table" it references
+
+      // Buffers for objects that must be emitted after all tables exist.
+      const deferredOwnedBy = [];   // ALTER SEQUENCE ... OWNED BY
+      const deferredIndexes = [];   // CREATE INDEX ...
+      const deferredData = [];      // { fullTableName, sql }  (ordered later)
+      const deferredMatViews = [];  // materialized views
+
+      // ============================================================
+      // 4. Sequences  +  5. Tables (structure only)
+      // ============================================================
       for (const schemaRow of schemasResult.rows) {
         const schemaName = schemaRow.schema_name;
-        
-        backupSQL += `\n-- Schema: ${schemaName}\n`;
-        backupSQL += `CREATE SCHEMA IF NOT EXISTS ${schemaName};\n\n`;
+        const quotedSchema = this.quoteIdentifier(schemaName);
 
-        // Get tables in this schema
-        const tablesQuery = `
-          SELECT c.relname as table_name
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Schema: ${schemaName}\n`;
+        backupSQL += `-- ============================================\n\n`;
+
+        // ---- Sequences (emit before tables so nextval() defaults resolve) ----
+        // Skip sequences that back an IDENTITY column: those are created implicitly
+        // by the CREATE TABLE ... GENERATED AS IDENTITY clause (dumping them would
+        // collide and produce a duplicate sequence like foo_id_seq1).
+        let sequencesResult;
+        try {
+          sequencesResult = await pool.query(`
+            SELECT s.relname AS sequence_name,
+                   seq.seqstart AS start_value,
+                   seq.seqincrement AS increment_by,
+                   seq.seqmin AS min_value,
+                   seq.seqmax AS max_value,
+                   seq.seqcache AS cache_value,
+                   seq.seqcycle AS is_cycled,
+                   format_type(seq.seqtypid, NULL) AS data_type
+            FROM pg_catalog.pg_class s
+            JOIN pg_catalog.pg_namespace n ON n.oid = s.relnamespace
+            JOIN pg_catalog.pg_sequence seq ON seq.seqrelid = s.oid
+            WHERE s.relkind = 'S' AND n.nspname = $1
+            AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_depend d
+              WHERE d.objid = s.oid AND d.deptype = 'i'
+            )
+            ORDER BY s.relname
+          `, [schemaName]);
+        } catch (seqErr) {
+          // pg_sequence exists only on PostgreSQL 10+; fall back to information_schema
+          console.warn('pg_sequence query failed, falling back:', seqErr.message);
+          sequencesResult = await safeQuery(`sequences in ${schemaName}`, `
+            SELECT sequence_name,
+                   start_value,
+                   increment AS increment_by,
+                   minimum_value AS min_value,
+                   maximum_value AS max_value,
+                   1 AS cache_value,
+                   (cycle_option = 'YES') AS is_cycled,
+                   data_type
+            FROM information_schema.sequences
+            WHERE sequence_schema = $1
+            ORDER BY sequence_name
+          `, [schemaName]);
+        }
+
+        for (const seqRow of sequencesResult.rows) {
+          const fullSequenceName = `${quotedSchema}.${this.quoteIdentifier(seqRow.sequence_name)}`;
+
+          backupSQL += `DROP SEQUENCE IF EXISTS ${fullSequenceName} CASCADE;\n`;
+          backupSQL += `CREATE SEQUENCE ${fullSequenceName}`;
+          if (seqRow.data_type && seqRow.data_type !== 'bigint') backupSQL += ` AS ${seqRow.data_type}`;
+          backupSQL += ` INCREMENT BY ${seqRow.increment_by}`;
+          backupSQL += ` MINVALUE ${seqRow.min_value} MAXVALUE ${seqRow.max_value}`;
+          backupSQL += ` START WITH ${seqRow.start_value} CACHE ${seqRow.cache_value || 1}`;
+          backupSQL += seqRow.is_cycled ? ` CYCLE;\n` : ` NO CYCLE;\n`;
+
+          try {
+            const cur = await pool.query(`SELECT last_value, is_called FROM ${fullSequenceName}`);
+            if (cur.rows.length > 0) {
+              const { last_value, is_called } = cur.rows[0];
+              backupSQL += `SELECT setval('${fullSequenceName.replace(/'/g, "''")}', ${last_value}, ${is_called});\n`;
+            }
+          } catch (valErr) {
+            console.warn(`Could not read current value for sequence ${fullSequenceName}:`, valErr.message);
+          }
+        }
+        if (sequencesResult.rows.length) backupSQL += `\n`;
+
+        // ---- Sequence OWNED BY links (deferred until tables exist) ----
+        const ownedByResult = await safeQuery(`sequence ownership in ${schemaName}`, `
+          SELECT quote_ident(sn.nspname) || '.' || quote_ident(s.relname) AS sequence_name,
+                 quote_ident(tn.nspname) || '.' || quote_ident(t.relname) AS table_name,
+                 quote_ident(a.attname) AS column_name
+          FROM pg_catalog.pg_depend d
+          JOIN pg_catalog.pg_class s ON s.oid = d.objid AND s.relkind = 'S'
+          JOIN pg_catalog.pg_namespace sn ON sn.oid = s.relnamespace
+          JOIN pg_catalog.pg_class t ON t.oid = d.refobjid
+          JOIN pg_catalog.pg_namespace tn ON tn.oid = t.relnamespace
+          JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+          WHERE d.deptype = 'a' AND sn.nspname = $1
+        `, [schemaName]);
+        for (const dep of ownedByResult.rows) {
+          deferredOwnedBy.push(`ALTER SEQUENCE ${dep.sequence_name} OWNED BY ${dep.table_name}.${dep.column_name};`);
+        }
+
+        // ---- Tables ----
+        const tablesResult = await pool.query(`
+          SELECT c.relname AS table_name, c.oid AS oid
           FROM pg_catalog.pg_class c
           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relkind = 'r'
+          WHERE c.relkind IN ('r', 'p')
+          AND c.relispartition = false
           AND n.nspname = $1
           ORDER BY c.relname
-        `;
-        
-        const tablesResult = await pool.query(tablesQuery, [schemaName]);
+        `, [schemaName]);
 
         for (const tableRow of tablesResult.rows) {
           const tableName = tableRow.table_name;
-          // Properly quote schema and table names for PostgreSQL
-          const quotedSchema = this.quoteIdentifier(schemaName);
-          const quotedTable = this.quoteIdentifier(tableName);
-          const fullTableName = `${quotedSchema}.${quotedTable}`;
+          const tableOid = tableRow.oid;
+          const fullTableName = `${quotedSchema}.${this.quoteIdentifier(tableName)}`;
+          const depKey = `${schemaName}.${tableName}`;
+          if (!tableDeps.has(depKey)) tableDeps.set(depKey, new Set());
 
-          // Get table structure
-          const columnsQuery = `
-            SELECT 
-              a.attname as column_name,
-              format_type(a.atttypid, a.atttypmod) as data_type,
-              NOT a.attnotnull as is_nullable,
-              pg_get_expr(d.adbin, d.adrelid) as column_default
+          // Columns — including IDENTITY and GENERATED (stored) columns.
+          const columnsResult = await pool.query(`
+            SELECT a.attname AS column_name,
+                   format_type(a.atttypid, a.atttypmod) AS data_type,
+                   a.attnotnull AS not_null,
+                   a.attidentity AS identity,
+                   a.attgenerated AS generated,
+                   pg_get_expr(d.adbin, d.adrelid) AS column_default,
+                   (SELECT seqclass.relname
+                      FROM pg_catalog.pg_depend dep
+                      JOIN pg_catalog.pg_class seqclass ON seqclass.oid = dep.objid AND seqclass.relkind = 'S'
+                      WHERE dep.refobjid = a.attrelid AND dep.refobjsubid = a.attnum AND dep.deptype = 'i'
+                      LIMIT 1) AS identity_seq_name,
+                   (SELECT seqns.nspname
+                      FROM pg_catalog.pg_depend dep
+                      JOIN pg_catalog.pg_class seqclass ON seqclass.oid = dep.objid AND seqclass.relkind = 'S'
+                      JOIN pg_catalog.pg_namespace seqns ON seqns.oid = seqclass.relnamespace
+                      WHERE dep.refobjid = a.attrelid AND dep.refobjsubid = a.attnum AND dep.deptype = 'i'
+                      LIMIT 1) AS identity_seq_schema
             FROM pg_catalog.pg_attribute a
             LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-            WHERE a.attrelid = $1::regclass
-            AND a.attnum > 0
-            AND NOT a.attisdropped
+            WHERE a.attrelid = $1 AND a.attnum > 0 AND NOT a.attisdropped
             ORDER BY a.attnum
-          `;
+          `, [tableOid]);
 
-          const columnsResult = await pool.query(columnsQuery, [fullTableName]);
-
-          // Build CREATE TABLE statement
           backupSQL += `-- Table: ${fullTableName}\n`;
           backupSQL += `DROP TABLE IF EXISTS ${fullTableName} CASCADE;\n`;
           backupSQL += `CREATE TABLE ${fullTableName} (\n`;
 
-          const columnDefs = columnsResult.rows.map((col, idx) => {
-            let def = `  ${col.column_name} ${col.data_type}`;
-            if (!col.is_nullable) {
-              def += ' NOT NULL';
-            }
-            if (col.column_default) {
+          const tableItems = [];
+
+          for (const col of columnsResult.rows) {
+            let def = `  ${this.quoteIdentifier(col.column_name)} ${col.data_type}`;
+
+            if (col.generated === 's') {
+              // Stored generated column
+              def += ` GENERATED ALWAYS AS (${col.column_default}) STORED`;
+            } else if (col.identity === 'a' || col.identity === 'd') {
+              const kind = col.identity === 'a' ? 'ALWAYS' : 'BY DEFAULT';
+              def += ` GENERATED ${kind} AS IDENTITY`;
+            } else if (col.column_default) {
               def += ` DEFAULT ${col.column_default}`;
             }
-            return def;
-          });
 
-          backupSQL += columnDefs.join(',\n');
-
-          // Get primary keys
-          const pkQuery = `
-            SELECT a.attname as column_name
-            FROM pg_catalog.pg_constraint con
-            JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY(con.conkey)
-            WHERE con.conrelid = $1::regclass
-            AND con.contype = 'p'
-          `;
-          
-          const pkResult = await pool.query(pkQuery, [fullTableName]);
-          
-          if (pkResult.rows.length > 0) {
-            const pkColumns = pkResult.rows.map(r => r.column_name).join(', ');
-            backupSQL += `,\n  PRIMARY KEY (${pkColumns})`;
+            if (col.not_null && col.generated !== 's') def += ` NOT NULL`;
+            tableItems.push(def);
           }
 
+          // Primary key (inline)
+          const pkResult = await pool.query(`
+            SELECT pg_get_constraintdef(con.oid) AS def
+            FROM pg_catalog.pg_constraint con
+            WHERE con.conrelid = $1 AND con.contype = 'p'
+          `, [tableOid]);
+          for (const pk of pkResult.rows) {
+            tableItems.push(`  ${pk.def}`);
+          }
+
+          // UNIQUE + CHECK constraints (inline). Exclude NOT VALID checks handled elsewhere.
+          const consResult = await pool.query(`
+            SELECT con.conname AS name, con.contype AS type,
+                   pg_get_constraintdef(con.oid) AS def
+            FROM pg_catalog.pg_constraint con
+            WHERE con.conrelid = $1 AND con.contype IN ('u', 'c')
+            ORDER BY con.contype, con.conname
+          `, [tableOid]);
+          for (const con of consResult.rows) {
+            tableItems.push(`  CONSTRAINT ${this.quoteIdentifier(con.name)} ${con.def}`);
+          }
+
+          backupSQL += tableItems.join(',\n');
           backupSQL += `\n);\n\n`;
 
-          // Get data
-          const dataResult = await pool.query(`SELECT * FROM ${fullTableName}`);
-          
-          if (dataResult.rows.length > 0) {
-            backupSQL += `-- Data for ${fullTableName}\n`;
-            
-            for (const row of dataResult.rows) {
-              const columns = Object.keys(row);
-              const values = columns.map(col => {
-                const val = row[col];
-                if (val === null) return 'NULL';
-                if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
-                if (val instanceof Date) return `'${val.toISOString()}'`;
-                if (typeof val === 'object') return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
-                return val;
-              });
+          // Record FK dependencies for data ordering.
+          const fkDepResult = await pool.query(`
+            SELECT n2.nspname AS ref_schema, c2.relname AS ref_table
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_class c2 ON con.confrelid = c2.oid
+            JOIN pg_catalog.pg_namespace n2 ON n2.oid = c2.relnamespace
+            WHERE con.conrelid = $1 AND con.contype = 'f'
+          `, [tableOid]);
+          for (const fkd of fkDepResult.rows) {
+            const refKey = `${fkd.ref_schema}.${fkd.ref_table}`;
+            if (refKey !== depKey) tableDeps.get(depKey).add(refKey);
+          }
 
-              backupSQL += `INSERT INTO ${fullTableName} (${columns.join(', ')}) VALUES (${values.join(', ')});\n`;
+          // ---- Data (buffered; INSERT column list makes IDENTITY/defaults safe) ----
+          const alwaysIdentityCols = columnsResult.rows
+            .filter(c => c.identity === 'a')
+            .map(c => c.column_name);
+          const identityCols = columnsResult.rows
+            .filter(c => c.identity === 'a' || c.identity === 'd')
+            .map(c => c.column_name);
+          const genCols = columnsResult.rows
+            .filter(c => c.generated === 's')
+            .map(c => c.column_name);
+          const skipCols = new Set([...genCols]); // never write generated columns
+
+          try {
+            const dataResult = await pool.query(`SELECT * FROM ${fullTableName}`);
+            if (dataResult.rows.length > 0) {
+              let block = `-- Data for ${fullTableName}\n`;
+              const allCols = dataResult.fields
+                .map(f => f.name)
+                .filter(name => !skipCols.has(name));
+              const colTypeByName = {};
+              for (const f of dataResult.fields) colTypeByName[f.name] = f.dataTypeID;
+              const colList = allCols.map(c => this.quoteIdentifier(c)).join(', ');
+              const needsOverriding = alwaysIdentityCols.length > 0;
+
+              for (const row of dataResult.rows) {
+                const vals = allCols.map(c => this.formatSQLValue(row[c], colTypeByName[c]));
+                block += `INSERT INTO ${fullTableName} (${colList})`;
+                if (needsOverriding) block += ` OVERRIDING SYSTEM VALUE`;
+                block += ` VALUES (${vals.join(', ')});\n`;
+              }
+
+              // Advance IDENTITY sequences past the inserted rows.
+              for (const idCol of identityCols) {
+                try {
+                  const mv = await pool.query(
+                    `SELECT max(${this.quoteIdentifier(idCol)}) AS m FROM ${fullTableName}`
+                  );
+                  const maxVal = mv.rows[0] && mv.rows[0].m;
+                  if (maxVal != null) {
+                    block += `SELECT setval(pg_get_serial_sequence('${fullTableName.replace(/'/g, "''")}', '${idCol.replace(/'/g, "''")}'), ${maxVal}, true);\n`;
+                  }
+                } catch (svErr) {
+                  console.warn(`Could not compute identity setval for ${fullTableName}.${idCol}:`, svErr.message);
+                }
+              }
+
+              block += `\n`;
+              deferredData.push({ key: depKey, fullTableName, sql: block });
             }
-            
-            backupSQL += '\n';
+          } catch (dataErr) {
+            console.warn(`Could not export data for ${fullTableName}:`, dataErr.message);
+            backupSQL += `-- NOTE: could not export data for ${fullTableName}: ${dataErr.message}\n\n`;
           }
         }
 
-        // Get views
-        const viewsQuery = `
-          SELECT c.relname as view_name, pg_get_viewdef(c.oid, true) as view_definition
+        // ---- Indexes (deferred; skip those backing a constraint) ----
+        const idxResult = await safeQuery(`indexes in ${schemaName}`, `
+          SELECT i.indexname AS name, i.indexdef AS def
+          FROM pg_catalog.pg_indexes i
+          WHERE i.schemaname = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_class ic ON ic.oid = con.conindid
+            JOIN pg_catalog.pg_namespace icn ON icn.oid = ic.relnamespace
+            WHERE icn.nspname = i.schemaname AND ic.relname = i.indexname
+          )
+          ORDER BY i.indexname
+        `, [schemaName]);
+        for (const idx of idxResult.rows) {
+          // pg_get_indexdef already emits CREATE [UNIQUE] INDEX ... ; make it idempotent.
+          const def = idx.def.replace(/^CREATE (UNIQUE )?INDEX /i, 'CREATE $1INDEX IF NOT EXISTS ');
+          deferredIndexes.push(def.endsWith(';') ? def : def + ';');
+        }
+
+        // ---- Regular views (dependency-ordered within schema) ----
+        const viewsResult = await safeQuery(`views in ${schemaName}`, `
+          SELECT c.relname AS view_name, c.oid AS oid,
+                 pg_get_viewdef(c.oid, true) AS view_definition
           FROM pg_catalog.pg_class c
           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relkind = 'v'
-          AND n.nspname = $1
-          ORDER BY c.relname
-        `;
-        
-        const viewsResult = await pool.query(viewsQuery, [schemaName]);
+          WHERE c.relkind = 'v' AND n.nspname = $1
+        `, [schemaName]);
 
-        for (const viewRow of viewsResult.rows) {
-          const viewName = viewRow.view_name;
-          const fullViewName = `${schemaName}.${viewName}`;
-          
+        // Order views so a view is emitted after any view it depends on.
+        const viewByOid = new Map(viewsResult.rows.map(v => [String(v.oid), v]));
+        const viewOrder = [];
+        const visited = new Set();
+        const visitView = async (oid) => {
+          if (visited.has(oid)) return;
+          visited.add(oid);
+          try {
+            const depRes = await pool.query(`
+              SELECT DISTINCT d.refobjid AS dep_oid
+              FROM pg_catalog.pg_rewrite rw
+              JOIN pg_catalog.pg_depend d ON d.objid = rw.oid
+                AND d.classid = 'pg_rewrite'::regclass
+                AND d.refclassid = 'pg_class'::regclass
+              WHERE rw.ev_class = $1
+                AND d.refobjid <> $1
+            `, [oid]);
+            for (const dr of depRes.rows) {
+              if (viewByOid.has(String(dr.dep_oid))) await visitView(String(dr.dep_oid));
+            }
+          } catch (e) { /* best effort ordering */ }
+          if (viewByOid.has(oid)) viewOrder.push(viewByOid.get(oid));
+        };
+        for (const v of viewsResult.rows) await visitView(String(v.oid));
+
+        for (const viewRow of viewOrder) {
+          const fullViewName = `${quotedSchema}.${this.quoteIdentifier(viewRow.view_name)}`;
           backupSQL += `-- View: ${fullViewName}\n`;
           backupSQL += `DROP VIEW IF EXISTS ${fullViewName} CASCADE;\n`;
           backupSQL += `CREATE VIEW ${fullViewName} AS\n${viewRow.view_definition}\n\n`;
         }
+
+        // ---- Materialized views (deferred to the very end, after data) ----
+        const matViewResult = await safeQuery(`materialized views in ${schemaName}`, `
+          SELECT c.relname AS name, pg_get_viewdef(c.oid, true) AS definition
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relkind = 'm' AND n.nspname = $1
+          ORDER BY c.relname
+        `, [schemaName]);
+        for (const mv of matViewResult.rows) {
+          const fullName = `${quotedSchema}.${this.quoteIdentifier(mv.name)}`;
+          const mvDef = String(mv.definition).trim().replace(/;\s*$/, '');
+          deferredMatViews.push(
+            `DROP MATERIALIZED VIEW IF EXISTS ${fullName} CASCADE;\n` +
+            `CREATE MATERIALIZED VIEW ${fullName} AS\n${mvDef}\nWITH DATA;\n`
+          );
+        }
+
+        // ---- Functions & procedures ----
+        const funcResult = await safeQuery(`functions in ${schemaName}`, `
+          SELECT p.oid,
+                 p.proname AS name,
+                 pg_get_functiondef(p.oid) AS def
+          FROM pg_catalog.pg_proc p
+          JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = $1
+          AND p.prokind IN ('f', 'p')
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_depend d
+            WHERE d.objid = p.oid AND d.deptype = 'e'
+          )
+          ORDER BY p.proname
+        `, [schemaName]);
+        if (funcResult.rows.length > 0) {
+          backupSQL += `-- Functions & procedures for schema: ${schemaName}\n`;
+          for (const fn of funcResult.rows) {
+            if (!fn.def) continue;
+            // pg_get_functiondef emits CREATE OR REPLACE already.
+            backupSQL += `${fn.def}${fn.def.trim().endsWith(';') ? '' : ';'}\n\n`;
+          }
+        }
       }
 
-      // Get foreign keys (add at the end to avoid dependency issues)
+      // ============================================================
+      // 6. Sequence ownership (tables now exist)
+      // ============================================================
+      if (deferredOwnedBy.length > 0) {
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Sequence ownership\n`;
+        backupSQL += `-- ============================================\n`;
+        backupSQL += deferredOwnedBy.join('\n') + '\n';
+      }
+
+      // ============================================================
+      // 7. Data (topologically sorted by FK dependencies)
+      // ============================================================
+      if (deferredData.length > 0) {
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Data\n`;
+        backupSQL += `-- ============================================\n`;
+
+        const dataByKey = new Map(deferredData.map(d => [d.key, d]));
+        const emitted = new Set();
+        const emitting = new Set();
+        const orderedData = [];
+        const visitData = (key) => {
+          if (emitted.has(key) || emitting.has(key)) return; // break cycles
+          emitting.add(key);
+          const deps = tableDeps.get(key) || new Set();
+          for (const dep of deps) {
+            if (dataByKey.has(dep)) visitData(dep);
+          }
+          emitting.delete(key);
+          emitted.add(key);
+          if (dataByKey.has(key)) orderedData.push(dataByKey.get(key));
+        };
+        for (const d of deferredData) visitData(d.key);
+
+        // Detect FK cycles among tables that actually have data.
+        const hasCycle = deferredData.some(d => {
+          const seen = new Set();
+          const stack = [d.key];
+          while (stack.length) {
+            const cur = stack.pop();
+            if (cur === d.key && seen.size > 0) return true;
+            if (seen.has(cur)) continue;
+            seen.add(cur);
+            for (const dep of (tableDeps.get(cur) || [])) {
+              if (dep === d.key) return true;
+              stack.push(dep);
+            }
+          }
+          return false;
+        });
+
+        if (hasCycle) {
+          backupSQL += `SET session_replication_role = replica;  -- defer FK checks (circular references)\n\n`;
+        }
+        for (const d of orderedData) {
+          backupSQL += d.sql;
+        }
+        if (hasCycle) {
+          backupSQL += `SET session_replication_role = DEFAULT;\n\n`;
+        }
+      }
+
+      // ============================================================
+      // 8. Indexes
+      // ============================================================
+      if (deferredIndexes.length > 0) {
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Indexes\n`;
+        backupSQL += `-- ============================================\n`;
+        backupSQL += deferredIndexes.join('\n') + '\n';
+      }
+
+      // ============================================================
+      // 9. Foreign keys
+      // ============================================================
       let fkQuery = `
         SELECT
-          quote_ident(n1.nspname) || '.' || quote_ident(c1.relname) as table_name,
-          quote_ident(con.conname) as constraint_name,
-          quote_ident(a1.attname) as column_name,
-          quote_ident(n2.nspname) || '.' || quote_ident(c2.relname) as foreign_table_name,
-          quote_ident(a2.attname) as foreign_column_name
+          quote_ident(n1.nspname) || '.' || quote_ident(c1.relname) AS table_name,
+          quote_ident(con.conname) AS constraint_name,
+          pg_get_constraintdef(con.oid) AS def
         FROM pg_catalog.pg_constraint con
         JOIN pg_catalog.pg_class c1 ON con.conrelid = c1.oid
         JOIN pg_catalog.pg_namespace n1 ON n1.oid = c1.relnamespace
-        JOIN pg_catalog.pg_class c2 ON con.confrelid = c2.oid
-        JOIN pg_catalog.pg_namespace n2 ON n2.oid = c2.relnamespace
-        JOIN pg_catalog.pg_attribute a1 ON a1.attrelid = c1.oid AND a1.attnum = ANY(con.conkey)
-        JOIN pg_catalog.pg_attribute a2 ON a2.attrelid = c2.oid AND a2.attnum = ANY(con.confkey)
         WHERE con.contype = 'f'
         AND n1.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
         AND n1.nspname NOT LIKE 'pg_%'
@@ -1138,16 +1606,135 @@ class DatabaseService {
         fkQuery += ' AND n1.nspname = ANY($1)';
         fkQueryParams.push(selectedSchemas);
       }
-
       fkQuery += ' ORDER BY n1.nspname, c1.relname, con.conname';
 
-      const fkResult = await pool.query(fkQuery, fkQueryParams);
-
+      const fkResult = await safeQuery('foreign keys', fkQuery, fkQueryParams);
       if (fkResult.rows.length > 0) {
-        backupSQL += `\n-- Foreign Keys\n`;
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Foreign Keys\n`;
+        backupSQL += `-- ============================================\n`;
         for (const fk of fkResult.rows) {
-          backupSQL += `ALTER TABLE ${fk.table_name} ADD CONSTRAINT ${fk.constraint_name} `;
-          backupSQL += `FOREIGN KEY (${fk.column_name}) REFERENCES ${fk.foreign_table_name}(${fk.foreign_column_name});\n`;
+          backupSQL += `ALTER TABLE ${fk.table_name} ADD CONSTRAINT ${fk.constraint_name} ${fk.def};\n`;
+        }
+      }
+
+      // ============================================================
+      // 10. Triggers
+      // ============================================================
+      let trigQuery = `
+        SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS table_name,
+               t.tgname AS name,
+               pg_get_triggerdef(t.oid, true) AS def
+        FROM pg_catalog.pg_trigger t
+        JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE NOT t.tgisinternal
+        AND n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+        AND n.nspname NOT LIKE 'pg_%'
+      `;
+      const trigParams = [];
+      if (selectedSchemas && selectedSchemas.length > 0) {
+        trigQuery += ' AND n.nspname = ANY($1)';
+        trigParams.push(selectedSchemas);
+      }
+      trigQuery += ' ORDER BY n.nspname, c.relname, t.tgname';
+
+      const trigResult = await safeQuery('triggers', trigQuery, trigParams);
+      if (trigResult.rows.length > 0) {
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Triggers\n`;
+        backupSQL += `-- ============================================\n`;
+        for (const tg of trigResult.rows) {
+          backupSQL += `DROP TRIGGER IF EXISTS ${this.quoteIdentifier(tg.name)} ON ${tg.table_name};\n`;
+          backupSQL += `${tg.def};\n`;
+        }
+      }
+
+      // ============================================================
+      // 11. Materialized views (after data so WITH DATA can populate)
+      // ============================================================
+      if (deferredMatViews.length > 0) {
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Materialized Views\n`;
+        backupSQL += `-- ============================================\n`;
+        backupSQL += deferredMatViews.join('\n') + '\n';
+      }
+
+      // ============================================================
+      // 12. Row-Level Security (enable + policies)
+      // ============================================================
+      let rlsQuery = `
+        SELECT quote_ident(schemaname) || '.' || quote_ident(tablename) AS table_name,
+               policyname AS name, permissive, roles, cmd, qual, with_check
+        FROM pg_catalog.pg_policies
+        WHERE schemaname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+        AND schemaname NOT LIKE 'pg_%'
+      `;
+      const rlsParams = [];
+      if (selectedSchemas && selectedSchemas.length > 0) {
+        rlsQuery += ' AND schemaname = ANY($1)';
+        rlsParams.push(selectedSchemas);
+      }
+      rlsQuery += ' ORDER BY schemaname, tablename, policyname';
+
+      const rlsResult = await safeQuery('RLS policies', rlsQuery, rlsParams);
+      if (rlsResult.rows.length > 0) {
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Row-Level Security Policies\n`;
+        backupSQL += `-- ============================================\n`;
+        const rlsTables = new Set();
+        for (const p of rlsResult.rows) {
+          if (!rlsTables.has(p.table_name)) {
+            backupSQL += `ALTER TABLE ${p.table_name} ENABLE ROW LEVEL SECURITY;\n`;
+            rlsTables.add(p.table_name);
+          }
+          let stmt = `CREATE POLICY ${this.quoteIdentifier(p.name)} ON ${p.table_name}`;
+          stmt += p.permissive === 'PERMISSIVE' ? ` AS PERMISSIVE` : ` AS RESTRICTIVE`;
+          if (p.cmd && p.cmd !== 'ALL') stmt += ` FOR ${p.cmd}`;
+          if (Array.isArray(p.roles) && p.roles.length && !(p.roles.length === 1 && p.roles[0] === 'public')) {
+            stmt += ` TO ${p.roles.map(r => this.quoteIdentifier(r)).join(', ')}`;
+          }
+          if (p.qual) stmt += ` USING (${p.qual})`;
+          if (p.with_check) stmt += ` WITH CHECK (${p.with_check})`;
+          backupSQL += stmt + `;\n`;
+        }
+      }
+
+      // ============================================================
+      // 13. Comments (tables, columns, and other objects)
+      // ============================================================
+      let commentQuery = `
+        SELECT 'TABLE'  AS obj_type,
+               quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS obj_name,
+               NULL::text AS extra,
+               d.description AS comment
+        FROM pg_catalog.pg_description d
+        JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid = 0
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('r','p','v','m') AND n.nspname = ANY($1)
+        UNION ALL
+        SELECT 'COLUMN' AS obj_type,
+               quote_ident(n.nspname) || '.' || quote_ident(c.relname) || '.' || quote_ident(a.attname) AS obj_name,
+               NULL::text AS extra,
+               d.description AS comment
+        FROM pg_catalog.pg_description d
+        JOIN pg_catalog.pg_class c ON c.oid = d.objoid AND d.objsubid > 0
+        JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.objsubid
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = ANY($1)
+      `;
+      const commentSchemas = (selectedSchemas && selectedSchemas.length > 0)
+        ? selectedSchemas
+        : schemaNames;
+      const commentResult = await safeQuery('comments', commentQuery, [commentSchemas]);
+      if (commentResult.rows.length > 0) {
+        backupSQL += `\n-- ============================================\n`;
+        backupSQL += `-- Comments\n`;
+        backupSQL += `-- ============================================\n`;
+        for (const cm of commentResult.rows) {
+          if (cm.comment == null) continue;
+          const esc = String(cm.comment).replace(/'/g, "''");
+          backupSQL += `COMMENT ON ${cm.obj_type} ${cm.obj_name} IS '${esc}';\n`;
         }
       }
 
