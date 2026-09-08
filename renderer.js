@@ -1292,7 +1292,12 @@ function setupEventListeners() {
   document.getElementById('executeQueryBtn')?.addEventListener('click', executeQuery);
   
   // Refresh Schema
-  document.getElementById('refreshSchemaBtn')?.addEventListener('click', loadDatabaseSchema);
+  document.getElementById('refreshSchemaBtn')?.addEventListener('click', () => {
+    // Clear the search box so the refreshed tree isn't shown next to a stale filter term
+    const dbSearch = document.getElementById('dbSearchInput');
+    if (dbSearch) dbSearch.value = '';
+    loadDatabaseSchema();
+  });
   
   // Reset refresh button state on page load
   resetRefreshButton();
@@ -2640,6 +2645,9 @@ function renderDatabaseTree(schema) {
     dbTree.appendChild(schemaEl);
     dbTree.appendChild(schemaChildren);
   }
+
+  // Re-apply the current search term to the freshly built tree
+  filterDatabaseTree(document.getElementById('dbSearchInput')?.value || '');
 }
 
 function selectTable(schemaName, tableName, tableInfo) {
@@ -2942,7 +2950,7 @@ function filterDatabaseTree(searchTerm) {
     return;
   }
   
-  const searchLower = searchTerm.toLowerCase();
+  const searchLower = searchTerm.trim().toLowerCase();
   
   // First hide all items and containers
   allTreeItems.forEach(item => {
@@ -2959,10 +2967,14 @@ function filterDatabaseTree(searchTerm) {
     const itemName = item.dataset.itemName || '';
     const schemaName = item.dataset.schemaName || '';
     const fullName = `${schemaName}.${itemName}`;
-    
-    if (itemName.toLowerCase().includes(searchLower) || 
-        schemaName.toLowerCase().includes(searchLower) ||
-        fullName.toLowerCase().includes(searchLower)) {
+
+    // Only match the schema-qualified name when the term is qualified, otherwise
+    // a letter present in the schema name matches every item in that schema
+    const matches = searchLower.includes('.')
+      ? fullName.toLowerCase().includes(searchLower)
+      : itemName.toLowerCase().includes(searchLower);
+
+    if (matches) {
       // Show matching item
       item.style.display = 'flex';
       
