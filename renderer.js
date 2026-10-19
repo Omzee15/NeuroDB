@@ -808,6 +808,11 @@ function switchToTab(tabIndex) {
   // Update UI
   renderConnectionTabs();
   
+  // Clear the Database Browser search so the previous connection's filter doesn't carry over
+  const dbSearch = document.getElementById('dbSearchInput');
+  if (dbSearch) dbSearch.value = '';
+  filterDatabaseTree('');
+
   // Reload database schema for this connection
   loadDatabaseSchema();
   loadTablesAndViews();
