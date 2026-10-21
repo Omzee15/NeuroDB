@@ -1,6 +1,6 @@
 {
   "name": "NeuroDB",
-  "version": "1.0.0",
+  "version": "1.18.0",
   "description": "AI-powered PostgreSQL database management tool",
   "main": "main.js",
   "scripts": {
@@ -65,10 +65,8 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icons/icon.icns",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "identity": null,
-      "type": "distribution",
       "extendInfo": {
         "CFBundleName": "NeuroDB",
         "CFBundleDisplayName": "NeuroDB",
@@ -90,7 +88,10 @@
             "arm64"
           ]
         }
-      ]
+      ],
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false
     },
     "dmg": {
       "title": "NeuroDB ${version}",
